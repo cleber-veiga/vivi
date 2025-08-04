@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Vivi"
     DESCRIPTION: str = "Serviço de Inteligência Para WhatsApp da Vivi"
     VERSION: str = "1.0.0"
-    URL_APPLICATION: str = "https://seusite.com"
+    URL_APPLICATION: str = "https://vivi-i6si.onrender.com"
 
     # Configurações de CORS
     CORS_ORIGINS: List[str] = ["http://localhost:8000", "http://localhost:3000"]
