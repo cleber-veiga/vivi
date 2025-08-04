@@ -1,0 +1,50 @@
+from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from app.models.agent import Agent
+from app.db.database import get_db
+from app.schemas.agent import AgentCreate, AgentResponse
+
+router = APIRouter(prefix="/agents", tags=["Agents"])
+
+@router.post("/", response_model=AgentResponse)
+async def create_agent(agent: AgentCreate, session: AsyncSession = Depends(get_db)):
+    new = Agent(name=agent.name)
+    session.add(new)
+    await session.commit()
+    await session.refresh(new)
+    return new
+
+@router.get("/", response_model=list[AgentResponse])
+async def list_agents(session: AsyncSession = Depends(get_db)):
+    result = await session.execute(select(Agent))
+    return result.scalars().all()
+
+@router.get("/{agent_id}", response_model=AgentResponse)
+async def get_agent(agent_id: int, session: AsyncSession = Depends(get_db)):
+    result = await session.execute(select(Agent).where(Agent.id == agent_id))
+    agent = result.scalar_one_or_none()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent não encontrado")
+    return agent
+
+@router.put("/{agent_id}", response_model=AgentResponse)
+async def update_agent(agent_id: int, data: AgentCreate, session: AsyncSession = Depends(get_db)):
+    result = await session.execute(select(Agent).where(Agent.id == agent_id))
+    agent = result.scalar_one_or_none()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent não encontrado")
+    agent.name = data.name
+    await session.commit()
+    await session.refresh(agent)
+    return agent
+
+@router.delete("/{agent_id}")
+async def delete_agent(agent_id: int, session: AsyncSession = Depends(get_db)):
+    result = await session.execute(select(Agent).where(Agent.id == agent_id))
+    agent = result.scalar_one_or_none()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent não encontrado")
+    await session.delete(agent)
+    await session.commit()
+    return {"message": "Agent removido com sucesso"}
