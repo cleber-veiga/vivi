@@ -22,12 +22,27 @@ async def receive_message(
     payload = MessagePayload
 ):
 
-    # 1) validação Twilio
-    validator = RequestValidator(settings.TWILIO_AUTH_TOKEN)
+    # Logs iniciais
+    print("🚀 Webhook recebido:")
+    print("↪️ From:", From)
+    print("↪️ To:", To)
+    print("↪️ Body:", Body)
+    print("↪️ MessageSid:", MessageSid)
+
     signature = request.headers.get("X-Twilio-Signature", "")
-    url = str(request.url)
+    url = request.url._url  # Use _url aqui para mais precisão
     form_vars = await request.form()
-    if not validator.validate(url, form_vars, signature):
+
+    print("🔒 Signature recebida:", signature)
+    print("🌐 URL usada na verificação:", url)
+    print("📦 Dados do formulário:", dict(form_vars))
+
+    validator = RequestValidator(settings.TWILIO_AUTH_TOKEN)
+    is_valid = validator.validate(url, form_vars, signature)
+
+    print("✅ Assinatura válida?", is_valid)
+
+    if not is_valid:
         return Response(status_code=403, content="Invalid signature")
 
     # 2) verifica se a mensagem tem mídia de áudio
