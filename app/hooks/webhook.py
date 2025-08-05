@@ -12,7 +12,7 @@ from app.utils.url_base import get_public_base_url
 
 router = APIRouter(prefix="/message", tags=["Messages"])
 
-@router.post("/")
+@router.post("")
 async def receive_message(
     request:    Request,
     From:       str = Form(...),  # número do usuário, ex: whatsapp:+5511987654321
@@ -30,11 +30,16 @@ async def receive_message(
     print("↪️ MessageSid:", MessageSid)
 
     signature = request.headers.get("X-Twilio-Signature", "")
-    url = request.url._url  # Use _url aqui para mais precisão
     form_vars = await request.form()
 
+    # ✅ Reconstrução correta da URL
+    proto = request.headers.get("X-Forwarded-Proto", "https")
+    host = request.headers.get("X-Original-Host", "")
+    path = request.url.path
+    url = f"{proto}://{host}{path}"
+
     print("🔒 Signature recebida:", signature)
-    print("🌐 URL usada na verificação:", url)
+    print("🌐 URL reconstruída:", url)
     print("📦 Dados do formulário:", dict(form_vars))
 
     validator = RequestValidator(settings.TWILIO_AUTH_TOKEN)
