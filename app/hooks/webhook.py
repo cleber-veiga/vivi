@@ -34,10 +34,11 @@ async def receive_message(
 
     # ✅ Reconstrução correta da URL
     proto = request.headers.get("X-Forwarded-Proto", "https")
-    host = request.headers.get("X-Original-Host", "")
+    host = request.headers.get("host", "")
     path = request.url.path
     url = f"{proto}://{host}{path}"
 
+    print("📡 Headers:", dict(request.headers))
     print("🔒 Signature recebida:", signature)
     print("🌐 URL reconstruída:", url)
     print("📦 Dados do formulário:", dict(form_vars))
