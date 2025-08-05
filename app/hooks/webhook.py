@@ -33,7 +33,7 @@ async def receive_message(
     form_vars = await request.form()
 
     # ✅ Reconstrução correta da URL
-    proto = request.headers.get("X-Forwarded-Proto", "https")
+    proto = request.headers.get("x-forwarded-proto", "https").lower()
     host = request.headers.get("host", "")
     path = request.url.path
     url = f"{proto}://{host}{path}"
