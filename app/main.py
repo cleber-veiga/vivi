@@ -42,7 +42,8 @@ async def lifespan(app: FastAPI):
 BASE_DIR = Path(__file__).resolve().parent
 static_dir = BASE_DIR / "static"
 if not static_dir.exists():
-    raise RuntimeError(f"Não achei a pasta estática em {static_dir}")
+    print(f"[INFO] Pasta estática não encontrada em {static_dir}, criando...")
+    static_dir.mkdir(parents=True, exist_ok=True)
 
 # Criação da aplicação
 app = FastAPI(

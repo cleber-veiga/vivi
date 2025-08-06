@@ -13,7 +13,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Exponha a porta padrão do Cloud Run
+# Expondo porta padrão
 EXPOSE 8080
 
 # Define a variável de ambiente padrão da porta
