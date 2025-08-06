@@ -77,14 +77,14 @@ app.include_router(auth_routes.router)
 # Rotas Webhooks
 app.include_router(webhook.router, prefix="/webhook")
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=int(settings.SERVER_PORT),
-        log_level="info",
-        proxy_headers=True,
-        forwarded_allow_ips="*",
-        reload=False
-    )
+# if __name__ == "__main__":
+#     import uvicorn
+#     uvicorn.run(
+#         "main:app",
+#         host="0.0.0.0",
+#         port=int(os.environ.get("PORT", 8080)),
+#         log_level="info",
+#         proxy_headers=True,
+#         forwarded_allow_ips="*",
+#         reload=False
+#     )
