@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     VERSION: str = "1.0.0"
     URL_APPLICATION: str = "https://vivi-i6si.onrender.com"
     ENVIRONMENT: str = Field(..., env="ENVIRONMENT")
-
+    SERVER_PORT: int = Field(8080, env="SERVER_PORT")
 
     # Configurações de CORS
     CORS_ORIGINS: List[str] = ["http://localhost:8000", "http://localhost:3000"]
@@ -26,7 +26,6 @@ class Settings(BaseSettings):
     OPENAI_MAX_TOKENS: Optional[int] = Field(default=4096, env="OPENAI_MAX_TOKENS")
 
     #NGrok
-    SERVER_PORT: int = Field(8000, env="SERVER_PORT")
     NGROK_AUTH_TOKEN: str = Field(..., env="NGROK_AUTH_TOKEN")
     USE_NGROK: bool = Field(False, env="USE_NGROK")
 
