@@ -5,6 +5,8 @@ from app.services.docling import DoclingPdfProcessor
 from docling.document_converter import DocumentConverter
 from docling.datamodel.base_models import InputFormat
 
+from app.utils.path_base import find_project_root
+
 class BaseDocumentRead:
     """
     Classe base abstrata para read de documentos.
@@ -33,7 +35,7 @@ class BaseDocumentRead:
     
 class CSVRead(BaseDocumentRead):
 
-    async def read(self, input_pdf_path: Path, separator: str = ',') -> str:
+    async def read(self, input_pdf_path: Path, separator: str = ',', name: str = 'document') -> str:
         try:
             df = pd.read_csv(input_pdf_path, sep=separator, encoding="utf-8")
         except UnicodeDecodeError:
@@ -56,7 +58,7 @@ class XLSXRead(BaseDocumentRead):
     Ideal para posterior chunking e análise semântica.
     """
 
-    async def read(self, input_pdf_path: Path, sheet_name: str = 0) -> str:
+    async def read(self, input_pdf_path: Path, sheet_name: str = 0, name: str = 'document') -> str:
         try:
             df = pd.read_excel(input_pdf_path, sheet_name=sheet_name, engine="openpyxl")
         except Exception as e:
@@ -76,7 +78,7 @@ class MarkdownRead(BaseDocumentRead):
     Lê arquivos Markdown (.md) e retorna o conteúdo bruto como texto.
     """
 
-    async def read(self, input_pdf_path: Path) -> str:
+    async def read(self, input_pdf_path: Path, name: str = 'document') -> str:
         try:
             with open(input_pdf_path, "r", encoding="utf-8") as file:
                 return file.read()
@@ -88,7 +90,7 @@ class TxtRead(BaseDocumentRead):
     Lê arquivos de texto simples (.txt) com encoding seguro.
     """
 
-    async def read(self, input_pdf_path: Path) -> str:
+    async def read(self, input_pdf_path: Path, name: str = 'document') -> str:
         try:
             with open(input_pdf_path, "r", encoding="utf-8") as file:
                 return file.read()
@@ -107,11 +109,23 @@ class PdfRead(BaseDocumentRead):
     def __init__(self):
         self.processor = DoclingPdfProcessor()
 
-    async def read(self, input_pdf_path: Path) -> str:
+    async def read(self, input_pdf_path: Path, name: str = 'document') -> str:
         try:
             markdown = self.processor.convert_pdf_to_markdown(
                 input_pdf_path=input_pdf_path
             )
+            markdown = markdown.replace("<!-- image -->", "")
+
+            project_root = find_project_root("app")
+
+            output_dir = project_root / "static" / "files"
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            output_file = output_dir / f"{name}.md"
+
+            with output_file.open("w", encoding="utf-8") as f:
+                f.write(markdown)
+
             return markdown
         except Exception as e:
             return f"Exception: Erro ao converter PDF com DoclingPdfProcessor: {e}"
@@ -124,7 +138,7 @@ class DocxRead(BaseDocumentRead):
     def __init__(self):
         self.converter = DocumentConverter()
 
-    async def read(self, input_pdf_path: Path) -> str:
+    async def read(self, input_pdf_path: Path, name: str = 'document') -> str:
         try:
             result = self.converter.convert(input_pdf_path, input_format=InputFormat.DOCX)
             markdown = result.document.export_to_markdown()

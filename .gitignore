@@ -53,6 +53,10 @@ package-lock.json
 pnpm-lock.yaml
 yarn.lock
 
+#app
+app/static/files/
+client_secret.json
+
 # Build output
 dist/
 build/

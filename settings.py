@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     DESCRIPTION: str = "Serviço de Inteligência Para WhatsApp da Vivi"
     VERSION: str = "1.0.0"
     URL_APPLICATION: str = "https://vivi-i6si.onrender.com"
+    ENVIRONMENT: str = Field(..., env="ENVIRONMENT")
+
 
     # Configurações de CORS
     CORS_ORIGINS: List[str] = ["http://localhost:8000", "http://localhost:3000"]
@@ -33,7 +35,11 @@ class Settings(BaseSettings):
     AGENT_ENDPOINT: str = Field(..., env="AGENT_ENDPOINT")
     TWILIO_ACCOUNT_SID: str = Field(..., env="TWILIO_ACCOUNT_SID")
     
-    
+    # Google Calendar
+    GOOGLE_CLIENT_ID: str = Field(..., env="GOOGLE_CLIENT_ID")
+    GOOGLE_CLIENT_SECRET: str = Field(..., env="GOOGLE_CLIENT_SECRET")
+    REDIRECT_URI: str = Field(..., env="REDIRECT_URI")
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

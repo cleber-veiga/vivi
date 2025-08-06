@@ -4,6 +4,9 @@ from datetime import datetime
 class AgentBase(BaseModel):
     name: str
 
+class AgentTokenLinkRequest(BaseModel):
+    user_email: str
+
 class AgentCreate(AgentBase):
     pass
 

@@ -48,16 +48,22 @@ class BaseMessage:
         memory.add_message(role="user", content=question)
 
         # 3. Invocar o agente
-        resposta = await self.invoke(question=question)
+        resultado = await self.invoke(question=question)
+
+        resposta = resultado["resposta"]
+        metadata = resultado["metadata"]
 
         # 4. Adicionar resposta do agente à memória
         memory.add_message(role="assistant", content=resposta)
+
+
 
         # 5. Salvar memória atualizada no banco
         await MemoryService.upsert_memory(
             self.session,
             phone=phone,
-            memory=memory.to_dict()
+            memory=memory.to_dict(),
+            metadata_json=metadata
         )
 
         return resposta
@@ -82,7 +88,8 @@ class BaseMessage:
                 elif not msg.tool_calls:
                     # Fallback: se não houver tool_call e parecer uma resposta final
                     return msg.content.strip()
-
+            if "Ação:" in msg.content and "Resposta Final:" in msg.content:
+                print("⚠️ Atenção: Ferramenta foi ignorada no fluxo. Ação declarada, mas não executada.")
         return "Desculpe, algo deu errado e acabei não entendendo sua pergunta. Por favor, não exite em perguntar novamente"
 
     def divide_memory(self, memoria: Dict[str, List[Dict[str, str]]], limite: int = 4) -> Tuple[List[Dict[str, str]], List[Dict[str, str]]]:
@@ -103,7 +110,13 @@ class BaseMessage:
             return mensagens, []  # tudo recente, nada anterior
         else:
             return mensagens[-limite:], mensagens[:-limite]
-        
+    def _build_metadata_from_state(self, state: dict) -> dict:
+        """
+        Extrai os campos úteis do estado do agente para salvar como metadata_json.
+        """
+        keys_permitidas = ["phone", "name", "email", "address", "cnpj", "corporate_reason"]
+        return {key: state.get(key) for key in keys_permitidas if state.get(key) is not None}
+
     def _build_workflow(self, agent_runnable, tools):
         workflow = StateGraph(AgentState)
 
@@ -113,20 +126,21 @@ class BaseMessage:
 
         def route(state: AgentState) -> str:
             last_msg = state["messages"][-1]
-            if getattr(last_msg, "tool_calls", None):
+            
+            # Verifica se há tool_calls (caso o modelo use isso nativamente)
+            if isinstance(last_msg, AIMessage) and last_msg.tool_calls:
                 return "tools"
             
-            # Fallback: verifica padrão textual
+            # Verifica se há instruções de Ação explícitas no padrão ReAct
             content = last_msg.content if isinstance(last_msg, AIMessage) else ""
-            if re.search(r"Ação:\s*\w+\s*\nEntrada de Ação:\s*```python.*?```", content, flags=re.DOTALL):
-                return "tools"
-            if re.search(r"Ação: \w+\nEntrada de Ação: {.*}", content):
-                return "tools"
-            if re.search(r"Ação: {.*}", content):
+            
+            padrao_acao = re.search(r"Ação:\s*(\w+)", content)
+            padrao_entrada = re.search(r"Entrada de Ação:\s*(```python)?\{.*?\}(```)?", content, re.DOTALL)
+            
+            if padrao_acao and padrao_entrada:
                 return "tools"
 
-            if isinstance(last_msg, AIMessage) and last_msg.content:
-                return END
+            # Caso contrário, encerra
             return END
 
         workflow.add_conditional_edges("agent", route)
@@ -139,10 +153,9 @@ class BaseMessage:
         now = datetime.now()
 
         tool_names = ", ".join(t.name for t in tools_agent)
-        tool_descriptions = "\n".join([f"{t.name}: {t.description}" for t in tools_agent])
+        tools_descriptions = "\n".join([f"{t.name}: {t.description}" for t in tools_agent])
 
         lead = await MemoryService.get_memory_by_phone(self.session, self.phone)
-
         if lead and lead.conversation_mem:
             memory = lead.conversation_mem
             memory_recent, memory_long = self.divide_memory(memory, limite=4)
@@ -152,26 +165,46 @@ class BaseMessage:
         simple_memory = SimpleMemory()
         memory_recent = simple_memory.message_converter(memory_recent)
 
+        initial_state = {
+            "messages": memory_recent + [HumanMessage(content=question)],
+            "agent_scratchpad": [],
+            "phone": self.phone
+        }
+
+        if lead and lead.metadata_json:
+            for key, value in lead.metadata_json.items():
+                if key == "phone":
+                    continue
+                initial_state[key] = value
+        
+        metadata_dict = self._build_metadata_from_state(initial_state)
+        current_state = "\n".join([f"- {k}: {v}" for k, v in metadata_dict.items()])
+        
         summary = ""
         if memory_long:
             summary = await summarize_conversation(memory_long, llm)
             
         template = "\n\n".join([
             AGENT_PREFIX,
-            tool_descriptions,
             AGENT_INSTRUCTIONS,
             AGENT_SUFFIX
         ])
         system_prompt = template.replace("{tool_names}", tool_names) \
             .replace("{now}", str(now)) \
             .replace("{phone}", str(self.phone)) \
-            .replace("{summary}", str(summary))
+            .replace("{summary}", str(summary)) \
+            .replace("{tools_descriptions}", str(tools_descriptions)) \
+            .replace("{current_state}", str(current_state))
 
         chat_prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
             MessagesPlaceholder("messages"),
             MessagesPlaceholder("agent_scratchpad"),
         ])
+
+        print("======= SYSTEM PROMPT FINAL =======")
+        print(system_prompt)
+        print("===================================")
 
         react_runnable = create_react_agent(
             model=llm,
@@ -186,13 +219,13 @@ class BaseMessage:
 
         app = self._build_workflow(agent_runnable=react_runnable, tools=tools)
 
-        initial_state = {
-            "messages": memory_recent + [HumanMessage(content=question)],
-            "agent_scratchpad": [],
-            "phone": self.phone
-        }
+        
+
         config = {"configurable": {"thread_id": f"session_{str(uuid.uuid4())}"}}
 
         result_state = await app.ainvoke(initial_state, config=config)
 
-        return str(self.extract_resposta_final_from_state(result_state))
+        return {
+            "resposta": str(self.extract_resposta_final_from_state(result_state)),
+            "metadata": self._build_metadata_from_state(result_state)
+        }

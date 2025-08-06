@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Text, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, Text, ForeignKey, DateTime, String
 from pgvector.sqlalchemy import Vector
 from app.db.database import Base
 from sqlalchemy.sql import func
@@ -11,5 +11,8 @@ class Chunk(Base):
     page = Column(Integer)
     content = Column(Text)
     embedding = Column(Vector(1536))
+    section_title = Column(String(255), nullable=True)
+    chunk_position = Column(String(20), nullable=True)
+    token_count = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

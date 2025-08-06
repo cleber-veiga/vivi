@@ -1,6 +1,6 @@
 import operator
 from langchain_core.messages import BaseMessage
-from typing import TypedDict, Annotated, Sequence, Optional
+from typing import NotRequired, TypedDict, Annotated, Sequence, Optional
 from pydantic import BaseModel
 
 class MessagePayload(BaseModel):
@@ -13,3 +13,8 @@ class AgentState(TypedDict):
     remaining_steps: int
     agent_scratchpad: list
     phone: str
+    name: NotRequired[Optional[str]]
+    email: NotRequired[Optional[str]]
+    address: NotRequired[Optional[str]]
+    cnpj: NotRequired[Optional[str]]
+    corporate_reason: NotRequired[Optional[str]]

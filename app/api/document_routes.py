@@ -55,11 +55,11 @@ async def create_document(
 
     # Executa a leitura baseada na extensão
     if ext == '.csv':
-        result_convert = await reads[ext].read(input_pdf_path=Path(input_pdf_path), separator=separator)
+        result_convert = await reads[ext].read(input_pdf_path=Path(input_pdf_path), separator=separator, name=name)
     elif ext == '.xlsx':
-        result_convert = await reads[ext].read(input_pdf_path=Path(input_pdf_path), sheet_name=sheet_name)
+        result_convert = await reads[ext].read(input_pdf_path=Path(input_pdf_path), sheet_name=sheet_name, name=name)
     else:
-        result_convert = await reads[ext].read(input_pdf_path=Path(input_pdf_path))
+        result_convert = await reads[ext].read(input_pdf_path=Path(input_pdf_path), name=name)
     
     os.remove(input_pdf_path)
 

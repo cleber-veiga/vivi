@@ -22,31 +22,17 @@ async def receive_message(
     payload = MessagePayload
 ):
 
-    # Logs iniciais
-    print("🚀 Webhook recebido:")
-    print("↪️ From:", From)
-    print("↪️ To:", To)
-    print("↪️ Body:", Body)
-    print("↪️ MessageSid:", MessageSid)
-
     signature = request.headers.get("X-Twilio-Signature", "")
     form_vars = await request.form()
 
-    # ✅ Reconstrução correta da URL
     proto = request.headers.get("x-forwarded-proto", "https").lower()
     host = request.headers.get("host", "")
     path = request.url.path
     url = f"{proto}://{host}{path}"
 
-    print("📡 Headers:", dict(request.headers))
-    print("🔒 Signature recebida:", signature)
-    print("🌐 URL reconstruída:", url)
-    print("📦 Dados do formulário:", dict(form_vars))
-
     validator = RequestValidator(settings.TWILIO_AUTH_TOKEN)
     is_valid = validator.validate(url, form_vars, signature)
 
-    print("✅ Assinatura válida?", is_valid)
 
     if not is_valid:
         return Response(status_code=403, content="Invalid signature")
@@ -82,7 +68,6 @@ async def receive_message(
             agent = BaseMessage(request=payload, session=session)
             # supondo que handle() retorne um objeto com .reply ou .text
             reply_text = await agent.handle()
-
             if audio_url:
                 audio_response = await generate_audio_with_openai(text=reply_text, phone=payload.phone)
     except Exception:

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Simulador de Chat - /test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f9f9f9;
+            margin: 0;
+            padding: 0;
+        }
+
+        .chat-container {
+            max-width: 500px;
+            margin: 40px auto;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 0 12px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .messages {
+            flex: 1;
+            padding: 20px;
+            height: 350px;
+            overflow-y: auto;
+            border-bottom: 1px solid #ccc;
+        }
+
+        .message {
+            margin-bottom: 14px;
+            line-height: 1.4;
+        }
+
+        .message.user {
+            text-align: right;
+            color: #007bff;
+        }
+
+        .message.bot {
+            text-align: left;
+            color: #333;
+        }
+
+        .input-container {
+            display: flex;
+            padding: 12px;
+            gap: 8px;
+            border-top: 1px solid #ccc;
+        }
+
+        input,
+        button {
+            font-size: 16px;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+        }
+
+        input {
+            flex: 1;
+        }
+
+        button {
+            background-color: #007bff;
+            color: #fff;
+            cursor: pointer;
+            border: none;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="chat-container">
+        <div class="messages" id="chatBox"></div>
+        <div class="input-container">
+            <input type="text" id="textInput" placeholder="Digite sua mensagem..." />
+            <button onclick="sendMessage()">Enviar</button>
+        </div>
+    </div>
+
+    <script>
+        const webhookUrl = "http://127.0.0.1:8000/webhook/message/test"; // Altere se necessário para a URL externa
+
+        const chatBox = document.getElementById("chatBox");
+
+        function appendMessage(content, type) {
+            const div = document.createElement("div");
+            div.className = `message ${type}`;
+            div.textContent = content;
+            chatBox.appendChild(div);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById("textInput");
+            const message = input.value.trim();
+            if (!message) return;
+
+            appendMessage(message, "user");
+            input.value = "";
+
+            try {
+                const response = await fetch(webhookUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        phone: "5511999999999",
+                        message: message
+                    })
+                });
+
+                const data = await response.json();
+                appendMessage(data.reply_text || "⚠️ Resposta inválida", "bot");
+
+            } catch (err) {
+                console.error("Erro ao enviar:", err);
+                appendMessage("❌ Erro ao enviar mensagem.", "bot");
+            }
+        }
+    </script>
+
+</body>
+
+</html>

@@ -7,7 +7,7 @@ from app.src.embedding import EmbeddingProcessor
 from sqlalchemy.ext.asyncio import AsyncSession
 
 class ChunkProcessor:
-    def __init__(self, chunk_size: int = 500, chunk_overlap: int = 50):
+    def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 50):
         self.splitter = RecursiveCharacterTextSplitter(
             separators=["\n\n", "\n", ".", " ", ""],
             chunk_size=chunk_size,
@@ -35,39 +35,37 @@ class ChunkProcessor:
             for i, (chunk_text, vector) in enumerate(zip(raw_chunks, vectors))
         ]
 
-class ChunkRetrive:
+class ChunkRetrieve:
     def __init__(self, session: AsyncSession):
         self.embedding = EmbeddingProcessor()
         self.session = session
 
-    async def retrieve(self, query: str, document_name: str):
-        # Log 1: Verifica a query recebida
-        print(f"[🔍 DEBUG] Consulta recebida: {query}")
-        print(f"[🔍 DEBUG] Documento alvo: {document_name}")
-
-        # Gera o vetor da consulta
+    async def retrieve(self, query: str, document_name: str = "") -> List[Chunk]:
+        # 1) Gera o vetor da consulta
         query_vector = self.embedding.embed_openai([query])[0]
-        print(f"[🧠 DEBUG] Vetor da pergunta (dim={len(query_vector)}): {query_vector[:5]}...")
 
-        # Monta a query
-        stmt = (
-            select(Chunk)
-            .join(Document, Chunk.document_id == Document.id)
-            .where(Document.name == document_name)
-            .order_by(Chunk.embedding.l2_distance(query_vector))
-            .limit(3)
-            .select_from(Chunk)
-        )
+        # 2) Monta a consulta SQL
+        if document_name:
+            stmt = (
+                select(Chunk)
+                .join(Document, Chunk.document_id == Document.id)
+                .where(Document.name == document_name)
+                .order_by(Chunk.embedding.l2_distance(query_vector))
+                .limit(3)
+            )
+        else:
+            stmt = (
+                select(Chunk)
+                .order_by(Chunk.embedding.l2_distance(query_vector))
+                .limit(3)
+            )
 
-        print(f"[🧾 DEBUG] Query SQL montada:\n{stmt}")
-
-        # Executa
+        # 3) Executa
         results = await self.session.execute(stmt)
-        chunks = results.scalars().all()
-
-        print(f"[📦 DEBUG] Total de chunks retornados: {len(chunks)}")
+        chunks: List[Chunk] = results.scalars().all()
 
         if not chunks:
-            print("[⚠️ AVISO] Nenhum chunk foi encontrado para o documento informado. Verifique se o nome está correto e se os embeddings existem.")
+            # você pode lançar exceção ou apenas logar
+            print("[⚠️ AVISO] Nenhum chunk encontrado para os critérios informados.")
 
-        return "\n\n".join(chunk.content for chunk in chunks)
+        return chunks

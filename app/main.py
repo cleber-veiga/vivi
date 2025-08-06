@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import sys
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
@@ -7,7 +8,7 @@ from settings import settings
 from fastapi.middleware.cors import CORSMiddleware
 from app.db.database import engine
 from app.hooks import webhook
-from app.api import agent_routes, document_routes
+from app.api import agent_routes, document_routes, auth_routes
 from pyngrok import ngrok
 from fastapi.staticfiles import StaticFiles
 
@@ -38,6 +39,11 @@ async def lifespan(app: FastAPI):
 
     yield
 
+BASE_DIR = Path(__file__).resolve().parent
+static_dir = BASE_DIR / "static"
+if not static_dir.exists():
+    raise RuntimeError(f"Não achei a pasta estática em {static_dir}")
+
 # Criação da aplicação
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -47,7 +53,11 @@ app = FastAPI(
 )
 
 # Serve tudo que estiver na pasta ./static
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount(
+    "/static",
+    StaticFiles(directory=str(static_dir)),
+    name="static",
+)
 
 # Middleware de CORS
 app.add_middleware(
@@ -61,6 +71,7 @@ app.add_middleware(
 # Rotas API
 app.include_router(agent_routes.router, prefix="/api")
 app.include_router(document_routes.router, prefix="/api")
+app.include_router(auth_routes.router)
 
 # Rotas Webhooks
 app.include_router(webhook.router, prefix="/webhook")
