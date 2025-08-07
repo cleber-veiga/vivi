@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 from google.cloud import storage
 from starlette.responses import JSONResponse
 from typing import Literal
@@ -15,16 +15,29 @@ client = storage.Client()
 @router.post("/upload/{file_type}", tags=["GCS Files"])
 async def upload_file(
     file_type: Literal["audio", "video", "img"],
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    is_public: bool = Query(default=False, description="Tornar arquivo público?"),
+    fixed_url: bool = Query(default=False, description="Gerar URL fixa (pública) ou temporária?")
 ):
     try:
         blob_path = f"{file_type}/{file.filename}"
         bucket = client.bucket(BUCKET_NAME)
         blob = bucket.blob(blob_path)
+
+        # Envia o arquivo
         blob.upload_from_file(file.file, content_type=file.content_type)
 
-        # Deixa o objeto público (opcional)
-        url = blob.generate_signed_url(expiration=timedelta(minutes=15))
+        # Torna público, se solicitado
+        if is_public:
+            blob.acl.reload()
+            blob.acl.all().grant_read()
+            blob.acl.save()
+
+        # Define a URL de retorno
+        if is_public and fixed_url:
+            url = f"https://storage.googleapis.com/{BUCKET_NAME}/{blob_path}"
+        else:
+            url = blob.generate_signed_url(expiration=timedelta(minutes=15))
 
         return {
             "message": "Arquivo enviado com sucesso!",
