@@ -3,6 +3,8 @@ from typing import List, Optional
 from pydantic_settings import BaseSettings
 from pydantic import Field
 
+# from dotenv import load_dotenv
+# load_dotenv()
 
 class Settings(BaseSettings):
     """Configurações da aplicação."""
@@ -21,7 +23,7 @@ class Settings(BaseSettings):
 
     # OpenAI
     OPENAI_API_KEY: str = Field(..., env="OPENAI_API_KEY")
-    OPENAI_MODEL: str = Field(default="gpt-4o", env="OPENAI_MODEL")
+    OPENAI_MODEL: str = Field(default="gpt-4o-mini", env="OPENAI_MODEL")
     OPENAI_TEMPERATURE: Optional[float] = Field(default=0.5, env="OPENAI_TEMPERATURE")
     OPENAI_MAX_TOKENS: Optional[int] = Field(default=4096, env="OPENAI_MAX_TOKENS")
 
@@ -37,7 +39,10 @@ class Settings(BaseSettings):
     # Google Calendar
     GOOGLE_CLIENT_ID: str = Field(..., env="GOOGLE_CLIENT_ID")
     GOOGLE_CLIENT_SECRET: str = Field(..., env="GOOGLE_CLIENT_SECRET")
+    GOOGLE_TOKE_URI: str = "https://oauth2.googleapis.com/token"
     REDIRECT_URI: str = Field(..., env="REDIRECT_URI")
+
+    # GOOGLE_APPLICATION_CREDENTIALS: str = Field(..., env="GOOGLE_APPLICATION_CREDENTIALS")
 
     class Config:
         env_file = ".env"

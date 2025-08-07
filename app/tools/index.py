@@ -1,9 +1,12 @@
 from app.tools.tools import *
 
 tools = [
+
+    master_retrieve,
+
     # FERRAMENTAS DE COMPORTAMENTO
-    comport_inicial,
-    comport_saudacao,
+    comport_saudacao_inicial,
+    comport_invalidos,
     comport_necess,
     comport_solucoes,
     comport_qualifica,
@@ -11,7 +14,7 @@ tools = [
     comport_encerra,
 
     # FERRAMENTAS DE INFORMAÇÃO
-    info_escopo,
+    info_escopo_esperado,
     info_criterios_cta,
     info_historia,
     info_estrutura,
@@ -19,6 +22,7 @@ tools = [
     info_produto_funcion,
 
     # FERRAMENTAS DE EXEMPLOS
+    exemp_rapport,
     exemp_objecoes,
 
     # FERRAMENTAS DE CAPTURAS

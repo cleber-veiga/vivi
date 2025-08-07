@@ -12,40 +12,14 @@ from datetime import datetime
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, PromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from app.base.prompt import (
     AGENT_PREFIX,
-    AGENT_PREFIX_REACT,
-    AGENT_SUFFIX,
-    AGENT_SUFFIX_REACT,
-    PROMPT
+    AGENT_INSTRUCTIONS,
+    AGENT_SUFFIX
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-class UniqueToolNode(ToolNode):
-    async def invoke(self, state):
-        tool_calls = [m.tool_calls for m in state["messages"] if hasattr(m, "tool_calls")][-1]
-        used_tools = state.get("tools_used", set())
-        updated_messages = []
-
-        for call in tool_calls:
-            tool_name = call["name"]
-            if tool_name in used_tools:
-                updated_messages.append(
-                    ToolMessage(name=tool_name, content="Essa ferramenta já foi utilizada.")
-                )
-                continue
-            tool = self.tools_by_name.get(tool_name)
-            if tool:
-                output = await tool.ainvoke(call["args"])
-                updated_messages.append(
-                    ToolMessage(name=tool_name, content=str(output))
-                )
-                used_tools.add(tool_name)
-
-        state["tools_used"] = used_tools
-        state["messages"].extend(updated_messages)
-        return state
 
 class BaseMessage:
     """
@@ -136,7 +110,6 @@ class BaseMessage:
             return mensagens, []  # tudo recente, nada anterior
         else:
             return mensagens[-limite:], mensagens[:-limite]
-        
     def _build_metadata_from_state(self, state: dict) -> dict:
         """
         Extrai os campos úteis do estado do agente para salvar como metadata_json.
@@ -144,96 +117,36 @@ class BaseMessage:
         keys_permitidas = ["phone", "name", "email", "address", "cnpj", "corporate_reason"]
         return {key: state.get(key) for key in keys_permitidas if state.get(key) is not None}
 
-    def _build_parameters_from_state(self, state: dict) -> str:
-        keys_permitidas = ["phone", "name", "email", "address", "cnpj", "corporate_reason"]
-
-        parameters = []
-        for key in keys_permitidas:
-            if state.get(key) is not None:
-                parameters.append(f"<{key}>{state.get(key)}</{key}")
-            else:
-                parameters.append(f"<{key}>Ainda não informado</{key}")
-        return "".join(parameters)
-
     def _build_workflow(self, agent_runnable, tools):
         workflow = StateGraph(AgentState)
 
         workflow.add_node("agent", agent_runnable)
-        # workflow.add_node("tools", ToolNode(tools))
-        workflow.add_node("tools", UniqueToolNode(tools))
+        workflow.add_node("tools", ToolNode(tools))
         workflow.set_entry_point("agent")
 
         def route(state: AgentState) -> str:
             last_msg = state["messages"][-1]
+            
+            # Verifica se há tool_calls (caso o modelo use isso nativamente)
+            if isinstance(last_msg, AIMessage) and last_msg.tool_calls:
+                return "tools"
+            
+            # Verifica se há instruções de Ação explícitas no padrão ReAct
+            content = last_msg.content if isinstance(last_msg, AIMessage) else ""
+            
+            padrao_acao = re.search(r"Ação:\s*(\w+)", content)
+            padrao_entrada = re.search(r"Entrada de Ação:\s*(```python)?\{.*?\}(```)?", content, re.DOTALL)
+            
+            if padrao_acao and padrao_entrada:
+                return "tools"
 
-            if isinstance(last_msg, AIMessage):
-                content = last_msg.content
-
-                # Se houver resposta final explícita, encerrar
-                if "Resposta Final:" in content:
-                    return END
-
-                # Se houver tool_call nativa, executar
-                if last_msg.tool_calls:
-                    return "tools"
-
-                # Se houver instruções de ação mas sem resposta final explícita
-                padrao_acao = re.search(r"Ação:\s*(\w+)", content)
-                padrao_entrada = re.search(r"Entrada de Ação:\s*(```python)?\{.*?\}(```)?", content, re.DOTALL)
-
-                if padrao_acao and padrao_entrada:
-                    return "tools"
-
+            # Caso contrário, encerra
             return END
 
         workflow.add_conditional_edges("agent", route)
         workflow.add_edge("tools", "agent")
         return workflow.compile(checkpointer=MemorySaver())
     
-    def _extract_final_block(self, messages):
-        """
-        Retorna as mensagens a partir do último HumanMessage (inclusive) até o final.
-        """
-        index_ultima_human = -1
-        for i in reversed(range(len(messages))):
-            if isinstance(messages[i], HumanMessage):
-                index_ultima_human = i
-                break
-        
-        if index_ultima_human == -1:
-            return messages
-        
-        return messages[index_ultima_human:]
-
-    # def _build_contextual_prompt(self, mensagens):
-    #     linhas = []
-    #     for msg in mensagens:
-    #         if isinstance(msg, HumanMessage):
-    #             linhas.append(f"Usuário: {msg.content}")
-    #         elif hasattr(msg, "tool_calls") or isinstance(msg, AIMessage):
-    #             if msg.content.strip():
-    #                 linhas.append(f"Vivi: {msg.content}")
-    #         elif isinstance(msg, ToolMessage):
-    #             linhas.append(f"[Resposta da Ferramenta]: {msg.content}")
-    #     return "\n".join(linhas)
-    
-    def _build_memory_recent(self, message_json):
-        converted_messages = []
-        for msg in message_json:
-            if msg["role"] == "user":
-                converted_messages.append(f"<user>{msg["content"]}</user>")
-            elif msg["role"] == "assistant":
-                converted_messages.append(f"<vivi>{msg["content"]}</vivi>")
-        return "".join(converted_messages)
-    
-    def _build_contextual_prompt(self, mensagens):
-        linhas = []
-        for msg in mensagens:
-            if isinstance(msg, ToolMessage):
-                if not msg.name.startswith("capture"):
-                    linhas.append(f"<{msg.name}>{msg.content}</{msg.name}>")
-        return "".join(linhas)
-
     async def invoke(self, question):
         llm = self.llm_factory.get_llm()
         llm_formulator = self.llm_factory.get_formulation_llm()
@@ -252,14 +165,12 @@ class BaseMessage:
             memory_recent, memory_long = [], []
 
         simple_memory = SimpleMemory()
-        memory_recent_str = self._build_memory_recent(memory_recent)
         memory_recent = simple_memory.message_converter(memory_recent)
 
         initial_state = {
             "messages": memory_recent + [HumanMessage(content=question)],
             "agent_scratchpad": [],
-            "phone": self.phone,
-            "tools_used": set()
+            "phone": self.phone
         }
 
         if lead and lead.metadata_json:
@@ -276,11 +187,11 @@ class BaseMessage:
             summary = await summarize_conversation(memory_long, llm)
             
         template = "\n\n".join([
-            AGENT_PREFIX_REACT,
-            AGENT_SUFFIX_REACT
+            AGENT_PREFIX,
+            AGENT_INSTRUCTIONS,
+            AGENT_SUFFIX
         ])
-        system_prompt = template \
-            .replace("{tool_names}", tool_names) \
+        system_prompt = template.replace("{tool_names}", tool_names) \
             .replace("{now}", str(now)) \
             .replace("{phone}", str(self.phone)) \
             .replace("{summary}", str(summary)) \
@@ -292,6 +203,10 @@ class BaseMessage:
             MessagesPlaceholder("messages"),
             MessagesPlaceholder("agent_scratchpad"),
         ])
+
+        print("======= SYSTEM PROMPT FINAL =======")
+        print(system_prompt)
+        print("===================================")
 
         react_runnable = create_react_agent(
             model=llm,
@@ -308,29 +223,9 @@ class BaseMessage:
 
         config = {"configurable": {"thread_id": f"session_{str(uuid.uuid4())}"}}
 
-        result_state = await app.ainvoke(initial_state, config=config, interrupt_after=["10"])
-        
-        final_block = self._extract_final_block(result_state["messages"])
-        tool_content = self._build_contextual_prompt(final_block)
-
-        template_formulate = PromptTemplate.from_template(PROMPT)
-
-        chain = template_formulate | llm_formulator
-
-        response = await chain.ainvoke({
-            "now": str(now),
-            "tool_content": tool_content,
-            "summary": summary,
-            "memory": memory_recent_str,
-            "parameters": self._build_parameters_from_state(result_state),
-            "input": question
-        })
-        response = response.content
-
-        if not response or not str(response).strip():
-            response = self.extract_resposta_final_from_state(result_state)
+        result_state = await app.ainvoke(initial_state, config=config)
 
         return {
-            "resposta": response,
+            "resposta": str(self.extract_resposta_final_from_state(result_state)),
             "metadata": self._build_metadata_from_state(result_state)
         }

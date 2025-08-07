@@ -8,7 +8,7 @@ from settings import settings
 from fastapi.middleware.cors import CORSMiddleware
 from app.db.database import engine
 from app.hooks import webhook
-from app.api import agent_routes, document_routes, auth_routes
+from app.api import agent_routes, document_routes, auth_routes, static_routes
 from pyngrok import ngrok
 from fastapi.staticfiles import StaticFiles
 
@@ -45,6 +45,12 @@ if not static_dir.exists():
     print(f"[INFO] Pasta estática não encontrada em {static_dir}, criando...")
     static_dir.mkdir(parents=True, exist_ok=True)
 
+for subfolder in ["audio", "video", "img"]:
+    folder_path = static_dir / subfolder
+    if not folder_path.exists():
+        print(f"[INFO] Criando pasta estática: {folder_path}")
+        folder_path.mkdir(parents=True, exist_ok=True)
+
 # Criação da aplicação
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -53,12 +59,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Serve tudo que estiver na pasta ./static
-app.mount(
-    "/static",
-    StaticFiles(directory=str(static_dir)),
-    name="static",
-)
 
 # Middleware de CORS
 app.add_middleware(
@@ -72,6 +72,7 @@ app.add_middleware(
 # Rotas API
 app.include_router(agent_routes.router, prefix="/api")
 app.include_router(document_routes.router, prefix="/api")
+app.include_router(static_routes.router, prefix="/api")
 app.include_router(auth_routes.router)
 
 # Rotas Webhooks

@@ -36,7 +36,7 @@ async def auth_login():
 
 @router.get("/callback")
 async def auth_callback(code: str, session: AsyncSession = Depends(get_db)):
-    token_url = "https://oauth2.googleapis.com/token"
+    token_url = settings.GOOGLE_TOKE_URI
     data = {
         "code": code,
         "client_id": settings.GOOGLE_CLIENT_ID,

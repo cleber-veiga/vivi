@@ -40,8 +40,19 @@ class LLMFactory:
         """
         return ChatOpenAI(
             openai_api_key=self.api_key,
-            model=self.model,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
+            model="o4-mini",
+            temperature=1,
+            max_tokens=4096,
+            callback_manager=callback_manager
+        )
+    
+    def get_formulation_llm(self, callback_manager: Optional[BaseCallbackManager] = None):
+        """
+        Retorna a instância principal da LLM (OpenAI).
+        """
+        return ChatOpenAI(
+            model="gpt-4o-mini",
+            temperature=0.7,
+            max_tokens=512,
             callback_manager=callback_manager
         )

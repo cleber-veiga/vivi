@@ -1,11 +1,13 @@
 import operator
 from langchain_core.messages import BaseMessage
-from typing import NotRequired, TypedDict, Annotated, Sequence, Optional
+from typing import NotRequired, TypedDict, Annotated, Sequence, Optional, Set
 from pydantic import BaseModel
+
 
 class MessagePayload(BaseModel):
     phone: str
     message: str
+
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
@@ -18,3 +20,4 @@ class AgentState(TypedDict):
     address: NotRequired[Optional[str]]
     cnpj: NotRequired[Optional[str]]
     corporate_reason: NotRequired[Optional[str]]
+    tools_used: Set[str] = set()

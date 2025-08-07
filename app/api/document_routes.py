@@ -127,3 +127,47 @@ async def delete_document(document_id: int, session: AsyncSession = Depends(get_
 
     return {"message": f"Documento (ID: {document_id}) e seus chunks foram removidos com sucesso."}
 
+@router.post("/generate", response_model=DocumentResponse)
+async def create_document(
+    name: Optional[str] = Form(None),
+    agent_id: int = Form(...),
+    file: UploadFile = File(...),
+    separator: Optional[str] = Form(","),
+    sheet_name: Optional[str | int] = Form(0),
+    session: AsyncSession = Depends(get_db)
+):
+    if file:
+        ext = os.path.splitext(file.filename)[-1].lower()
+
+        if ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Extensão de arquivo '{ext}' não suportada. Use: {', '.join(ALLOWED_EXTENSIONS)}"
+            )
+    
+    # Mapear extensões para readers
+    reads = {
+        '.pdf': PdfRead(),
+        '.docx': DocxRead(),
+        '.txt': TxtRead(),
+        '.md': MarkdownRead(),
+        '.xlsx': XLSXRead(),
+        '.csv': CSVRead()
+    }
+
+    # Salva temporariamente o arquivo
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        input_pdf_path = tmp.name
+
+    # Executa a leitura baseada na extensão
+    if ext == '.csv':
+        result_convert = await reads[ext].read(input_pdf_path=Path(input_pdf_path), separator=separator, name=name)
+    elif ext == '.xlsx':
+        result_convert = await reads[ext].read(input_pdf_path=Path(input_pdf_path), sheet_name=sheet_name, name=name)
+    else:
+        result_convert = await reads[ext].read(input_pdf_path=Path(input_pdf_path), name=name)
+    
+    os.remove(input_pdf_path)
+
+    return {"message": f"Documento {name} convertido!"}

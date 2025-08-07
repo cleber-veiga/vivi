@@ -43,29 +43,36 @@ async def master_retrieve(query: str) -> str:
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
 @tool
-async def comport_inicial() -> str:
-    """Ferramenta que trará exemplos importantes de comportamento ao realizar saudações em inicios de conversa com novos leads
-    """
-    return """
-“Ooi! Eu sou a Vivi. Estou aqui pra fazer valer cada segundo do seu tempo e interesse pela VIASOFT. Como posso te chamar?”
-"""
+async def comport_saudacao_inicial(query: str) -> str:
+    """Definições de comportamento para Criar uma primeira impressão calorosa, acolhedora e personalizada, estabelecendo uma base para o rapport."""
+    async with async_session() as session:
+        chunker = ChunkRetrieve(session=session)
+        chunks = await chunker.retrieve(query=query, document_name="comport_saudacao_inicial")
+
+    if not chunks:
+        return "Desculpe, não encontrei informações no momento"
+
+    parts = []
+    for c in chunks:
+        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
+        parts.append(f"{header}\n\n{c.content}")
+    return "\n\n---\n\n".join(parts)
 
 @tool
-async def comport_saudacao() -> str:
-    """Definições de comportamento para Criar uma primeira impressão calorosa, acolhedora e personalizada, estabelecendo uma base para o rapport."""
-    return """
-**Ações Esperadas do LLM:**
-*   **Mensagem Inicial:** Responda a um simples "Olá" com uma saudação amigável
-*   **Personalização:** Peça o nome do usuário de forma natural e use-o nas interações subsequentes para criar um senso de reconhecimento e proximidade.
-*   **Tom de Voz:** Mantenha um tom de voz positivo, proativo e ligeiramente informal, mas sempre profissional.
-*   **Empatia:** Demonstre que você está ali para ajudar a resolver um problema ou atender a uma necessidade específica do usuário.
-*   **Concisão:** Mantenha a saudação inicial curta e direta, idealmente em uma ou duas frases.
+async def comport_invalidos(query: str) -> str:
+    """Exemplos de comportamento a frente de clientes que estão fora do requisitos mínimos para prosseguir"""
+    async with async_session() as session:
+        chunker = ChunkRetrieve(session=session)
+        chunks = await chunker.retrieve(query=query, document_name="comport_invalidos")
 
-**Exemplo de Interação:**
-*   **Usuário:** Olá
-*   **LLM:** Ooi! Eu sou a Vivi. Estou aqui pra fazer valer cada segundo do seu tempo e interesse pela VIASOFT. Como posso te chamar?
-*   **LLM** Oi! Que bom te ver por aqui 😊 Sou a Vivi, especialista em Construshow, o sistema para varejo de materiais de construção. Me diz, como posso te chamar?
-"""
+    if not chunks:
+        return "Desculpe, não encontrei informações no momento"
+
+    parts = []
+    for c in chunks:
+        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
+        parts.append(f"{header}\n\n{c.content}")
+    return "\n\n---\n\n".join(parts)
 
 @tool
 async def comport_necess() -> str:
@@ -142,12 +149,32 @@ async def comport_encerra() -> str:
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
 @tool
-async def info_escopo() -> str:
-    """Ferramenta que retorna informações do escopo esperado para clientes que forem usar o Construshow"""
+async def info_escopo_esperado() -> str:
+    """Ferramenta que retorna informações do escopo esperado para clientes que forem usar o Construshow. 
+    Somente informe o que não atende se de fato for solicitado
+    """
     return """
-Atende – varejo de materiais de construção, home centers, showrooms; PDV omnichannel; controle de estoque por quantidade/lote/tonalidade; reservas por orçamento; entregas futuras por fase de obra; sugestões automáticas de produtos agregados; painéis de mix, margem e ticket médio; app vendedor; bloqueios de venda por saldo ou lote incompatível.
-Não atende – produção industrial, MRP, gestão de frota própria, contabilidade; controle de número de série ou grade moda; roteirização de caminhões; manufatura de concreto; BI externo não via Analytics.
-Cite só o que está listado; pedidos fora do escopo → oferecer checar com consultor. Não criar funções novas.
+**Escopo de Atendimento – Construshow**
+
+**Atende**:
+- Varejo de materiais de construção, home centers e showrooms
+- Controle de estoque por quantidade, lote e tonalidade
+- Reservas vinculadas a orçamentos
+- Entregas futuras segmentadas por fase de obra
+- Sugestões automáticas de produtos agregados
+- Painéis de gestão: mix de produtos, margem e ticket médio
+- Aplicativo para vendedores com mobilidade em atendimento
+- Bloqueios de venda com base em saldo ou lote incompatível
+
+**Não Atende**:
+- Processos de produção industrial (MRP)
+- Gestão de frota própria ou roteirização de caminhões
+- Contabilidade integrada
+- Controle por número de série ou grade (ex: moda)
+- Manufatura de concreto
+- Integração com BI externo que não seja via Viasoft Analytics
+
+*Para demandas fora deste escopo, oriente o cliente a verificar com um consultor especializado. Não criar funcionalidades não listadas.*
 """
 
 @tool
@@ -180,7 +207,7 @@ async def info_historia(query: str) -> str:
     """
     async with async_session() as session:
         chunker = ChunkRetrieve(session=session)
-        chunks = await chunker.retrieve(query=query, document_name="historia_missao_valores")
+        chunks = await chunker.retrieve(query=query, document_name="info_historia")
 
     if not chunks:
         return "Desculpe, não encontrei informações no momento"
@@ -206,7 +233,7 @@ async def info_estrutura(query: str) -> str:
     """
     async with async_session() as session:
         chunker = ChunkRetrieve(session=session)
-        chunks = await chunker.retrieve(query=query, document_name="estrutura_organizacional")
+        chunks = await chunker.retrieve(query=query, document_name="info_estrutura")
 
     if not chunks:
         return "Desculpe, não encontrei informações no momento"
@@ -230,7 +257,55 @@ async def info_politicas(query: str) -> str:
     """
     async with async_session() as session:
         chunker = ChunkRetrieve(session=session)
-        chunks = await chunker.retrieve(query=query, document_name="politicas_procedimentos")
+        chunks = await chunker.retrieve(query=query, document_name="info_politicas")
+
+    if not chunks:
+        return "Desculpe, não encontrei informações no momento"
+
+    parts = []
+    for c in chunks:
+        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
+        parts.append(f"{header}\n\n{c.content}")
+    return "\n\n---\n\n".join(parts)
+
+@tool
+async def info_implantacao(query: str) -> str:
+    """
+    Consulta o conteúdo de Informações do funcionamento da Implantação de software da Viasoft.
+
+    Args:
+        query (str): Pergunta refinada com base na intenção do usuário, usada para buscar informações relevantes.
+
+    Returns:
+        str: Texto com os conhecimentos extraídos do documento oficial de Políticas e Procedimentos da Viasoft.
+    """
+    async with async_session() as session:
+        chunker = ChunkRetrieve(session=session)
+        chunks = await chunker.retrieve(query=query, document_name="info_implantacao")
+
+    if not chunks:
+        return "Desculpe, não encontrei informações no momento"
+
+    parts = []
+    for c in chunks:
+        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
+        parts.append(f"{header}\n\n{c.content}")
+    return "\n\n---\n\n".join(parts)
+
+@tool
+async def info_etica(query: str) -> str:
+    """
+    Consulta o conteúdo de Código de Ética da Viasoft.
+
+    Args:
+        query (str): Pergunta refinada com base na intenção do usuário, usada para buscar informações relevantes.
+
+    Returns:
+        str: Texto com os conhecimentos extraídos do documento oficial de Políticas e Procedimentos da Viasoft.
+    """
+    async with async_session() as session:
+        chunker = ChunkRetrieve(session=session)
+        chunks = await chunker.retrieve(query=query, document_name="info_etica")
 
     if not chunks:
         return "Desculpe, não encontrei informações no momento"
@@ -254,7 +329,7 @@ async def info_produto_funcion(query: str) -> str:
     """
     async with async_session() as session:
         chunker = ChunkRetrieve(session=session)
-        chunks = await chunker.retrieve(query=query, document_name="produto_funcion")
+        chunks = await chunker.retrieve(query=query, document_name="info_produto_funcion")
 
     if not chunks:
         return "Desculpe, não encontrei informações no momento"
@@ -265,10 +340,82 @@ async def info_produto_funcion(query: str) -> str:
         parts.append(f"{header}\n\n{c.content}")
     return "\n\n---\n\n".join(parts)
 
+@tool
+async def info_ciclo_mel(query: str) -> str:
+    """
+    Consulta o conteúdo de como funciona o fluxo de melhoria e desenvolvimento do produto construshow
+
+    Args:
+        query (str): Pergunta refinada com base na intenção do usuário, usada para buscar informações relevantes.
+
+    Returns:
+        str: Texto com os conhecimentos extraídos do documento oficial de Informações de Funcionalidade do Produto
+    """
+    async with async_session() as session:
+        chunker = ChunkRetrieve(session=session)
+        chunks = await chunker.retrieve(query=query, document_name="info_ciclo_mel")
+
+    if not chunks:
+        return "Desculpe, não encontrei informações no momento"
+
+    parts = []
+    for c in chunks:
+        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
+        parts.append(f"{header}\n\n{c.content}")
+    return "\n\n---\n\n".join(parts)
+
+@tool
+async def info_swot(query: str) -> str:
+    """
+    Consulta o conteúdo de análise de fraquezas dos concorrentes e como o construshow se sai melhor do que eles
+
+    Args:
+        query (str): Pergunta refinada com base na intenção do usuário, usada para buscar informações relevantes.
+
+    Returns:
+        str: Texto com os conhecimentos extraídos do documento oficial de Informações de Funcionalidade do Produto
+    """
+    async with async_session() as session:
+        chunker = ChunkRetrieve(session=session)
+        chunks = await chunker.retrieve(query=query, document_name="info_swot")
+
+    if not chunks:
+        return "Desculpe, não encontrei informações no momento"
+
+    parts = []
+    for c in chunks:
+        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
+        parts.append(f"{header}\n\n{c.content}")
+    return "\n\n---\n\n".join(parts)
 
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 #  FERRAMENTAS DE EXEMPLOS
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+@tool
+async def exemp_rapport(query: str) -> str:
+    """
+    Ferramenta que retorna exemplos para superar objeções do cliente
+    Use sempre que o usuário tiver objeção sobre algum tema
+
+    Args:
+        query (str): Pergunta reformulada com base na intenção apontada pelo usuário.
+
+    Returns:
+        str: Texto com os conhecimentos das Políticas e Procedimentos da Viasoft
+    """
+    async with async_session() as session:
+        chunker = ChunkRetrieve(session=session)
+        chunks = await chunker.retrieve(query=query, document_name="exemp_rapport")
+
+    if not chunks:
+        return "Desculpe, não encontrei informações no momento"
+
+    parts = []
+    for c in chunks:
+        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
+        parts.append(f"{header}\n\n{c.content}")
+    return "\n\n---\n\n".join(parts)
 
 @tool
 async def exemp_objecoes(query: str) -> str:
@@ -284,7 +431,32 @@ async def exemp_objecoes(query: str) -> str:
     """
     async with async_session() as session:
         chunker = ChunkRetrieve(session=session)
-        chunks = await chunker.retrieve(query=query, document_name="superar_objecoes")
+        chunks = await chunker.retrieve(query=query, document_name="exemp_objecoes")
+
+    if not chunks:
+        return "Desculpe, não encontrei informações no momento"
+
+    parts = []
+    for c in chunks:
+        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
+        parts.append(f"{header}\n\n{c.content}")
+    return "\n\n---\n\n".join(parts)
+
+@tool
+async def exemp_neg_preco(query: str) -> str:
+    """
+    Ferramenta que retorna exemplos para superar objeções do cliente
+    Use sempre que o usuário tiver objeção sobre algum tema
+
+    Args:
+        query (str): Pergunta reformulada com base na intenção apontada pelo usuário.
+
+    Returns:
+        str: Texto com os conhecimentos das Políticas e Procedimentos da Viasoft
+    """
+    async with async_session() as session:
+        chunker = ChunkRetrieve(session=session)
+        chunks = await chunker.retrieve(query=query, document_name="exemp_neg_preco")
 
     if not chunks:
         return "Desculpe, não encontrei informações no momento"

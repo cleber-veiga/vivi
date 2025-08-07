@@ -55,7 +55,15 @@ yarn.lock
 
 #app
 app/static/files/
+app/static/video/
+app/static/img/
+app/static/audio/
+static/files/
+static/video/
+static/img/
+static/audio/
 client_secret.json
+key-vivi.json
 
 # Build output
 dist/
