@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime, timezone, timedelta
 import pytz
 import requests
 from sqlalchemy import select
@@ -8,46 +8,116 @@ from google.auth.transport.requests import Request
 from app.models import Agent, OAuthToken
 from settings import settings
 
+SKEW = timedelta(minutes=5)
+
+def _aware_utc(dt):
+    """Converte qualquer datetime para timezone-aware UTC (assumindo UTC se vier naive)."""
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc)
+    return dt.replace(tzinfo=timezone.utc)
+
+def _mask_token(tok: str, show_start: int = 6, show_end: int = 6) -> str:
+    if not tok:
+        return "<empty>"
+    if len(tok) <= show_start + show_end:
+        return tok[:3] + "..."  # bem curtinho, só pra log
+    return f"{tok[:show_start]}...{tok[-show_end:]}"
+
 async def get_valid_google_credentials(session: AsyncSession, agent_id: int) -> tuple[str, str]:
     """
-    Recupera e renova o token OAuth se necessário.
-    Retorna: (access_token, calendar_id)
+    Recupera o token OAuth e SÓ RENOVA se estiver expirado (ou perto) usando um SKEW.
+    Retorna: (access_token, calendar_id_ou_email)
     """
-    result = await session.execute(
-        select(Agent).where(Agent.id == agent_id)
-    )
-    agent = result.scalar_one_or_none()
+    print(f"[OAuth] Iniciando get_valid_google_credentials(agent_id={agent_id})")
 
+    # ---------- Carrega Agent/Token ----------
+    result = await session.execute(select(Agent).where(Agent.id == agent_id))
+    agent: Agent | None = result.scalar_one_or_none()
     if not agent or not agent.oauth_token:
+        print(f"[OAuth][ERRO] Agent não encontrado ou sem oauth_token (agent_id={agent_id})")
         raise ValueError("Agente não encontrado ou sem token vinculado")
 
     token_obj: OAuthToken = agent.oauth_token
 
+    # ---------- Normaliza expiração e calcula SKEW ----------
+    expires_at_raw = token_obj.expires_at
+    expires_at = _aware_utc(expires_at_raw)
+    now_utc = datetime.now(timezone.utc)
+    consider_expired = (expires_at is None) or (expires_at - now_utc <= SKEW)
+
+    print(f"[OAuth] user_email={token_obj.user_email}")
+    print(f"[OAuth] token_type={token_obj.token_type}")
+    print(f"[OAuth] token(antes)={_mask_token(token_obj.access_token)}")
+    print(f"[OAuth] refresh_token(tem?){'sim' if bool(token_obj.refresh_token) else 'nao'}")
+    print(f"[OAuth] expires_at_raw={expires_at_raw} | expires_at_utc={expires_at} | now_utc={now_utc} | consider_expired={consider_expired}")
+
+    # ---------- Monta Credentials ----------
+    scopes = token_obj.scope.split() if token_obj.scope else ["https://www.googleapis.com/auth/calendar.readonly"]
+    token_uri = getattr(settings, "GOOGLE_TOKEN_URI", "https://oauth2.googleapis.com/token")
+    expiry_naive = expires_at.replace(tzinfo=None) if expires_at else None  # evitar bug interno do google-auth
+
+    print(f"[OAuth] scopes={scopes}")
+    print(f"[OAuth] token_uri={token_uri}")
+
     creds = Credentials(
         token=token_obj.access_token,
         refresh_token=token_obj.refresh_token,
-        token_uri=settings.GOOGLE_TOKE_URI,
+        token_uri=token_uri,
         client_id=settings.GOOGLE_CLIENT_ID,
-        client_secret=settings.GOOGLE_CLIENT_SECRET
+        client_secret=settings.GOOGLE_CLIENT_SECRET,
+        scopes=scopes,
+        expiry=expiry_naive,
     )
 
-    if creds.expired and creds.refresh_token:
+    # ---------- Decide e (talvez) renova ----------
+    if consider_expired:
+        print("[OAuth] Token expirado ou prestes a expirar. Renovando...")
+        if not creds.refresh_token:
+            print("[OAuth][ERRO] Sem refresh_token para renovar.")
+            raise RuntimeError("Token inválido e sem refresh_token. Refaça o consentimento OAuth (offline).")
+
         try:
             creds.refresh(Request())
-            # Atualiza o access_token no banco de dados
-            token_obj.access_token = creds.token
-            await session.commit()
+            print("[OAuth] Refresh OK.")
         except Exception as e:
-            raise RuntimeError(f"Falha ao renovar token OAuth: {str(e)}")
+            print(f"[OAuth][ERRO] Falha no refresh: {e}")
+            raise RuntimeError(f"Falha ao renovar token OAuth: {e}") from e
 
-    return creds.token, token_obj.user_email
+        # ---------- Persiste novos dados ----------
+        try:
+            token_obj.access_token = creds.token
+            if creds.expiry:
+                token_obj.expires_at = creds.expiry.astimezone(timezone.utc)
+            if creds.scopes:
+                token_obj.scope = " ".join(creds.scopes)
+            token_obj.token_type = "Bearer"
+            await session.commit()
+
+            print(f"[OAuth] Persistido no DB: token={_mask_token(token_obj.access_token)}, "
+                  f"expires_at={token_obj.expires_at}, scopes={token_obj.scope}")
+        except Exception as e:
+            print(f"[OAuth][ERRO] Falha ao persistir no DB: {e}")
+            raise
+    else:
+        print("[OAuth] Token ainda válido. Usando o do banco (sem refresh).")
+
+    # ---------- Calendar ID ----------
+    calendar_id = getattr(agent, "calendar_id", None) or token_obj.user_email or "primary"
+    print(f"[OAuth] calendar_id={calendar_id}")
+    print("[OAuth] get_valid_google_credentials concluído com sucesso.")
+
+    # Nota: se não houve refresh, creds.token == token_obj.access_token original
+    return creds.token, calendar_id
+
 
 async def check_availability(session: AsyncSession, agent_id: int, data: str, hora: str, duracao_minutos: int = 60):
     access_token, calendar_id = await get_valid_google_credentials(session, agent_id)
 
     tz = pytz.timezone("America/Sao_Paulo")
-    dt_inicio = tz.localize(datetime.datetime.fromisoformat(f"{data}T{hora}"))
-    dt_fim = dt_inicio + datetime.timedelta(minutes=duracao_minutos)
+    dt_inicio = tz.localize(datetime.fromisoformat(f"{data}T{hora}"))
+    dt_fim = dt_inicio + timedelta(minutes=duracao_minutos)
 
     url = "https://www.googleapis.com/calendar/v3/freeBusy"
     headers = {
@@ -84,8 +154,8 @@ async def schedule_event(
 ):
     access_token, calendar_id = await get_valid_google_credentials(session, agent_id)
 
-    dt_inicio = datetime.datetime.fromisoformat(f"{data}T{hora}")
-    dt_fim = dt_inicio + datetime.timedelta(minutes=duracao_minutos)
+    dt_inicio = datetime.fromisoformat(f"{data}T{hora}")
+    dt_fim = dt_inicio + timedelta(minutes=duracao_minutos)
 
     url = f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events"
     headers = {

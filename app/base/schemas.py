@@ -5,8 +5,8 @@ from pydantic import BaseModel
 
 
 class MessagePayload(BaseModel):
-    phone: str
-    message: str
+    phone: str = ""
+    message: str = ""
 
 
 class AgentState(TypedDict):

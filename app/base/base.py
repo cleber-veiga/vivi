@@ -14,12 +14,11 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, PromptTemplate
 from app.base.prompt import (
-    AGENT_PREFIX,
     AGENT_PREFIX_REACT,
-    AGENT_SUFFIX,
     AGENT_SUFFIX_REACT,
     PROMPT
 )
+from langgraph.errors import GraphRecursionError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 class UniqueToolNode(ToolNode):
@@ -150,9 +149,9 @@ class BaseMessage:
         parameters = []
         for key in keys_permitidas:
             if state.get(key) is not None:
-                parameters.append(f"<{key}>{state.get(key)}</{key}")
+                parameters.append(f"<{key}>{state.get(key)}</{key}>")
             else:
-                parameters.append(f"<{key}>Ainda não informado</{key}")
+                parameters.append(f"<{key}>Ainda não informado</{key}>")
         return "".join(parameters)
 
     def _build_workflow(self, agent_runnable, tools):
@@ -204,18 +203,6 @@ class BaseMessage:
             return messages
         
         return messages[index_ultima_human:]
-
-    # def _build_contextual_prompt(self, mensagens):
-    #     linhas = []
-    #     for msg in mensagens:
-    #         if isinstance(msg, HumanMessage):
-    #             linhas.append(f"Usuário: {msg.content}")
-    #         elif hasattr(msg, "tool_calls") or isinstance(msg, AIMessage):
-    #             if msg.content.strip():
-    #                 linhas.append(f"Vivi: {msg.content}")
-    #         elif isinstance(msg, ToolMessage):
-    #             linhas.append(f"[Resposta da Ferramenta]: {msg.content}")
-    #     return "\n".join(linhas)
     
     def _build_memory_recent(self, message_json):
         converted_messages = []
@@ -279,13 +266,15 @@ class BaseMessage:
             AGENT_PREFIX_REACT,
             AGENT_SUFFIX_REACT
         ])
+        tools_used_str = ", ".join(initial_state["tools_used"]) or "nenhuma até o momento"
         system_prompt = template \
             .replace("{tool_names}", tool_names) \
             .replace("{now}", str(now)) \
             .replace("{phone}", str(self.phone)) \
-            .replace("{summary}", str(summary)) \
+            .replace("{memory}", str(memory_recent_str)) \
             .replace("{tools_descriptions}", str(tools_descriptions)) \
-            .replace("{current_state}", str(current_state))
+            .replace("{current_state}", str(current_state)) \
+            .replace("{tools_used_str}", tools_used_str)
 
         chat_prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
@@ -306,9 +295,16 @@ class BaseMessage:
 
         app = self._build_workflow(agent_runnable=react_runnable, tools=tools)
 
-        config = {"configurable": {"thread_id": f"session_{str(uuid.uuid4())}"}}
+        config = {"configurable": {
+            "thread_id": f"session_{str(uuid.uuid4())}",
+            "recursion_limit": 10
+            }
+        }
 
-        result_state = await app.ainvoke(initial_state, config=config, interrupt_after=["10"])
+        try:
+            result_state = await app.ainvoke(initial_state, config=config, interrupt_after=["10"])
+        except GraphRecursionError as e:
+            result_state = initial_state
         
         final_block = self._extract_final_block(result_state["messages"])
         tool_content = self._build_contextual_prompt(final_block)

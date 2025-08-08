@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Dict, List, Optional
 from langchain.tools import tool
 from app.base.schemas import AgentState
 from app.db.database import async_session
@@ -13,585 +13,118 @@ from sqlalchemy import select
 from app.models import Agent, OAuthToken
 
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-#  FERRAMENTA MASTER
-#-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-@tool
-async def master_retrieve(query: str) -> str:
-    """
-    Ferramenta que busca em todo conhecimento existente do assistente
-    Args:
-        query (str): Pergunta reformulada com base na intenção do usuário.
-
-    Returns:
-        str: Texto com os conhecimentos institucionais.
-    """
-    async with async_session() as session:
-        chunker = ChunkRetrieve(session=session)
-        chunks = await chunker.retrieve(query=query)
-
-    if not chunks:
-        return "Desculpe, não encontrei informações no momento"
-
-    parts = []
-    for c in chunks:
-        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
-        parts.append(f"{header}\n\n{c.content}")
-    return "\n\n---\n\n".join(parts)
-
-#-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-#  FERRAMENTAS DE COMPORTAMENTO
+#  FERRAMENTA DE INFORMAÇÃO
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
 @tool
-async def comport_saudacao_inicial(query: str) -> str:
-    """Definições de comportamento para Criar uma primeira impressão calorosa, acolhedora e personalizada, estabelecendo uma base para o rapport."""
-    async with async_session() as session:
-        chunker = ChunkRetrieve(session=session)
-        chunks = await chunker.retrieve(query=query, document_name="comport_saudacao_inicial")
+async def semantic_documentary_search(queries: Dict[str, str]) -> str:
+    """
+    Consulta documentos internos da Viasoft com base em busca semântica.
+    Consulta múltiplos documentos internos da Viasoft com base em busca semântica.
+    Permite usar uma pergunta (query) diferente para cada documento, e executa buscas simultâneas de forma segura.
+    Sempre avalie as informações que quer buscar com base na pergunta do usuario;
+    IMPORTANTE -> SEMPRE USE NO MÁXIMO 4 FERRAMENTAS
+    
+    Types:
+        "info_..." -> Documentos que iniciam com isso são documentos com ricos em informações, conteúdo, dados
+        "comport_..." -> Documentos que iniciam com isso são documentos que definem formas de agir, de se comportar em diferentes situações
+        "exemp_..." -> Documentos que iniciam com isso são documentos que possuem exemplos práticos e reais de diversas situações
 
-    if not chunks:
-        return "Desculpe, não encontrei informações no momento"
+    Documents:
+        - "info_estrutura" -> Use quando precisar de informações da Estrutura organizacional da Viasoft, como departamentos, produtos, parcerias e diferenciais estratégicos.
+        - "info_etica" -> Use quando precisar de conteúdo sobre o de Código de Ética da Viasoft.
+        - "info_implantacao" ->  Use quando precisar Informações do funcionamento da Implantação de software da Viasoft.
+        - "info_produto_funcion" -> User quando precisar de conteúdo sobre as principais funcionalidades do sistema Construshow
+        - "info_swot" -> Use quando precisar ver análises de fraquezas dos concorrentes e como o construshow se sai melhor do que eles
+        - "info_ciclo_mel" -> Use quando precisar saber como funciona o fluxo de melhoria e desenvolvimento do produto construshow
+        - "info_politicas" -> Use quando precisar de conteúdo das Políticas e Procedimentos Internos da Viasoft com base em perguntas específicas.
+        - "info_historia" -> Use quando precisar de informações institucionais da Viasoft, como história, missão e valores.
+        - "info_escopo_esperado" -> 
+        - "comport_saudacao_inicial" -> Definições de comportamento ao iniciar uma conversa
+        - "comport_encerra" -> Definições de comportamento ao encerrar conversas
+        - "comport_invalidos" -> Definições de comportamento frente a clientes que estão fora do requisitos mínimos para prosseguir ou estão fora do escopo
+        - "exemp_rapport" -> Exemplos para criar rapport e conexão com clientes
+        - "exemp_objecoes" -> Exemplos para superar objeções do cliente
+        - "exemp_neg_preco" -> Exemplos de como agir mencionar preço, taxas, reajustes e coisas do tipo
 
-    parts = []
-    for c in chunks:
-        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
-        parts.append(f"{header}\n\n{c.content}")
-    return "\n\n---\n\n".join(parts)
+    Args:
+        queries (Dict[str, str]): Dicionário onde:
+            - A chave é o nome do documento.
+            - O valor é a pergunta associada a esse documento.
+            
+            Exemplo:
+            {{
+                "info_etica": "Como funciona o código de conduta?",
+                "info_implantacao": "Qual é o passo a passo da implantação do sistema?"
+            }}
 
-@tool
-async def comport_invalidos(query: str) -> str:
-    """Exemplos de comportamento a frente de clientes que estão fora do requisitos mínimos para prosseguir"""
-    async with async_session() as session:
-        chunker = ChunkRetrieve(session=session)
-        chunks = await chunker.retrieve(query=query, document_name="comport_invalidos")
+    Returns:
+        str: Resumo consolidado com os trechos mais relevantes de cada documento consultado.
+    """
+    from asyncio import gather
 
-    if not chunks:
-        return "Desculpe, não encontrei informações no momento"
+    # Definindo uma função que encapsula a sessão por tarefa
+    async def retrieve_from_doc(doc_name: str, query: str):
+        async with async_session() as session:
+            chunker = ChunkRetrieve(session=session)
+            return await chunker.retrieve(query=query, document_name=doc_name)
 
-    parts = []
-    for c in chunks:
-        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
-        parts.append(f"{header}\n\n{c.content}")
-    return "\n\n---\n\n".join(parts)
+    # Preparando tarefas individuais com sessões independentes
+    tasks = [retrieve_from_doc(doc, query) for doc, query in queries.items()]
+    results = await gather(*tasks)
 
-@tool
-async def comport_necess() -> str:
-    """Definições de comportamento para Entender o interesse do cliente e coletar informações básicas para qualificação, fazendo o usuário sentir-se ouvido e compreendido."""
-    return """
-**Ações Esperadas do LLM:**
-*   **Perguntas Abertas e Contextuais:** Faça perguntas que incentivem o usuário a expressar suas necessidades em suas próprias palavras (ex: "O que te trouxe até aqui hoje?", "Qual o principal desafio que você enfrenta?").
-*   **Validação e Resumo:** Após a resposta do usuário, valide o entendimento (ex: "Entendi, então você está buscando otimizar X...") e resuma brevemente para mostrar que você processou a informação. **Mantenha o resumo em uma única frase.**
-*   **Oferecer Opções (se aplicável):** Se a resposta for muito ampla, ofereça opções de tópicos de interesse para guiar a conversa (ex: "Você está buscando A, B ou C?").
-*   **Linguagem Positiva:** Use frases como "Que ótimo!", "Perfeito!" para reforçar a interação positiva.
-*   **Concisão:** Formule as perguntas de forma direta, sem rodeios.
-*	**Conexão:** Sempre uso o nome do lead com frequência para conexão emocial.
-*	**Condução:** Conduza a conversa usando SPIN Selling (Situação-Problema-Implicação-Necessidade). Identifique no mínimo: nome, empresa, cargo, setor, desafio principal e, quando houver rapport, o CNPJ.
+    # Formatando os resultados
+    response_parts = []
+    for (doc_name, query), chunks in zip(queries.items(), results):
+        if not chunks:
+            response_parts.append(f"❌ Nenhuma informação encontrada em **{doc_name}** para: _{query}_")
+            continue
 
-**Exemplo de Interação:**
-*   **LLM:** Prazer, João! Para que eu possa te direcionar para a informação mais relevante, você poderia me dizer o que te trouxe até aqui hoje? Você está buscando algum produto, ou tem alguma outra necessidade específica?
-*   **Usuário:** Estou procurando algo para melhorar o controle da minha empresa.
-*   **LLM:** Entendi, João! A otimização do controle das empresas é uma das nossas especialidades. Para que eu possa te apresentar a solução ideal, você poderia me dizer qual o ramo da sua empresa atualmente?
+        doc_header = f"## 📘 Resultados para `{doc_name}` — Pergunta: _{query}_"
+        parts = []
+        for c in chunks:
+            header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
+            parts.append(f"{header}\n\n{c.content}")
+        response_parts.append(f"{doc_header}\n\n" + "\n\n".join(parts))
 
-**Importante:**
-*	Sempre analise o segmento da empresa, para garantir que ela esteja dentro do escopo esperado, para saber melhor sobre o escopo usa a ferramenta `info_escopo_esperado`.
-"""
-
-@tool
-async def comport_solucoes() -> str:
-    """Definições de comportamento para Oferecer valor ao cliente com base nas suas necessidades identificadas, demonstrando que a Vivi é útil e capaz de ajudar."""
-    return """
-**Ações Esperadas do LLM:**
-*   **Relevância:** Apresente produtos/serviços que sejam diretamente relevantes às necessidades expressas pelo usuário.
-*   **Benefícios:** Foque nos benefícios para o usuário, não apenas nas características do produto.
-*   **Linguagem Clara e Convincente:** Use uma linguagem que seja fácil de entender e que motive o usuário a dar o próximo passo.
-*   **Transparência:** Se for o caso, explique por que aquela solução é a mais indicada para ele.
-*   **Concisão:** Apresente as soluções em frases curtas e impactantes. Utilize bullet points ou listas numeradas se houver mais de um item, para facilitar a leitura em dispositivos móveis.
-"""
-
-@tool
-async def comport_qualifica() -> str:
-    """Definições de comportamento para Refinar a qualificação do lead, diferenciando curiosos de potenciais clientes, mantendo a confiança e o rapport"""
-    return"""
-**Ações Esperadas do LLM:**
-*   **Perguntas Estratégicas:** Faça perguntas mais específicas sobre quantidade de colaboradores, prazo esperado de implantação, desafios atuais, etc. (Ex: "Para que eu possa te ajudar da melhor forma, preciso entender um pouco mais sobre a sua necessidade. Você já tem um orçamento definido para essa solução?").
-*   **Justificativa das Perguntas:** Sempre que possível, justifique o porquê da pergunta (ex: "Para que eu possa te apresentar a solução mais adequada..."). **Mantenha a justificativa breve.**
-*   **Análise de Respostas:** Avalie o engajamento, a especificidade das respostas e a disposição do usuário em fornecer informações para determinar se é um curioso ou um lead qualificado.
-*   **Adaptação:** Se o usuário parecer um curioso, redirecione-o suavemente para conteúdo informativo (Site, FAQ) sem "descartá-lo" abruptamente. Se for um lead, prepare o terreno para o CTA.
-*   **Concisão:** As perguntas devem ser diretas e as opções de resposta claras e curtas.
-"""
-
-@tool
-async def comport_acao() -> str:
-    """Definições de comportamento para Direcionar o lead para o próximo passo no funil de vendas de forma clara e convidativa."""
-    return """
-**Ações Esperadas do LLM:**
-*   **CTA Claro e Único:** Apresente uma única e clara chamada para ação (agendar reunião, solicitar orçamento, baixar material).
-*   **Benefício do CTA:** Reitere o benefício de realizar a ação (ex: "Agende uma demonstração para ver como podemos resolver seus desafios!"). **Mantenha esta frase curta e impactante.**
-*   **Opções de Saída:** Ofereça uma alternativa caso o usuário não queira o CTA principal (ex: "Se preferir, posso te enviar mais informações por e-mail.").
-*   **Concisão:** O CTA deve ser direto e as opções de resposta curtas.
-
-"""
-
-@tool
-async def comport_encerra() -> str:
-    """Definições de comportamento para Finalizar a conversa de forma profissional, agradecendo e deixando as portas abertas para futuras interações, reforçando o rapport"""
-    return """
-**Ações Esperadas do LLM:**
-*   **Agradecimento:** Agradeça o tempo e a interação do usuário.
-*   **Resumo (se aplicável):** Se houver um próximo passo definido, resuma-o brevemente. **Uma frase é suficiente.**
-*   **Disponibilidade:** Deixe claro que a Vivi está disponível para futuras dúvidas.
-*   **Tom Amigável:** Mantenha o tom de voz positivo e prestativo.
-*   **Concisão:** A mensagem de encerramento deve ser breve e cordial.
-"""
+    return "\n\n---\n\n".join(response_parts)
 
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-#  FERRAMENTAS DE INFORMAÇÃO
+#  FERRAMENTA DE CAPTURA
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
 @tool
-async def info_escopo_esperado() -> str:
-    """Ferramenta que retorna informações do escopo esperado para clientes que forem usar o Construshow. 
-    Somente informe o que não atende se de fato for solicitado
+async def capture_lead_data(phone: str, data: Dict[str, str]) -> Dict[str, str]:
     """
-    return """
-**Escopo de Atendimento – Construshow**
-
-**Atende**:
-- Varejo de materiais de construção, home centers e showrooms
-- Controle de estoque por quantidade, lote e tonalidade
-- Reservas vinculadas a orçamentos
-- Entregas futuras segmentadas por fase de obra
-- Sugestões automáticas de produtos agregados
-- Painéis de gestão: mix de produtos, margem e ticket médio
-- Aplicativo para vendedores com mobilidade em atendimento
-- Bloqueios de venda com base em saldo ou lote incompatível
-
-**Não Atende**:
-- Processos de produção industrial (MRP)
-- Gestão de frota própria ou roteirização de caminhões
-- Contabilidade integrada
-- Controle por número de série ou grade (ex: moda)
-- Manufatura de concreto
-- Integração com BI externo que não seja via Viasoft Analytics
-
-*Para demandas fora deste escopo, oriente o cliente a verificar com um consultor especializado. Não criar funcionalidades não listadas.*
-"""
-
-@tool
-async def info_criterios_cta(query: str) -> str:
-    """Critérios mínimos para direcionar o lead a uma demonstração ou agendamento"""
-    return """
-** Critérios mínimos para a chamada:**
--	Nome, CNPJ, Razão Social e Fantasia;
-- 	Cidade e UF;
-- 	Email para envio do invite;
--	Validar o ERP atual e quantidade de usuários simultâneos;
--	Compreender os principais desafios e dores;
--	Explorar as implicações dessas dores;
-- 	Posicionar a Viasoft com provas sociais, argumentos estratégicos e diferenciais reais;
--	Confirmar que fez sentido para o lead conhecer mais.
-**Essas informações estarão presentes na sessão `Parâmetros Atuais`**
-"""
-
-@tool
-async def info_historia(query: str) -> str:
-    """
-    Ferramenta que retorna informações institucionais da Viasoft, como história, missão e valores.
-    Use sempre que o usuário solicitar quem é a empresa ou informações culturais da organização.
-
-    Args:
-        query (str): Pergunta reformulada com base na intenção do usuário.
-
-    Returns:
-        str: Texto com os conhecimentos institucionais.
-    """
-    async with async_session() as session:
-        chunker = ChunkRetrieve(session=session)
-        chunks = await chunker.retrieve(query=query, document_name="info_historia")
-
-    if not chunks:
-        return "Desculpe, não encontrei informações no momento"
-
-    parts = []
-    for c in chunks:
-        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
-        parts.append(f"{header}\n\n{c.content}")
-    return "\n\n---\n\n".join(parts)
-
-
-@tool
-async def info_estrutura(query: str) -> str:
-    """
-    Ferramenta que retorna informações da Estrutura organizacional da Viasoft, como departamentos, produtos, parcerias e diferenciais estratégicos.
-    Use sempre que o usuário solicitar esse tipo de informação
-
-    Args:
-        query (str): Pergunta reformulada com base na intenção apontada pelo usuário.
-
-    Returns:
-        str: Texto com os conhecimentos organizacionais.
-    """
-    async with async_session() as session:
-        chunker = ChunkRetrieve(session=session)
-        chunks = await chunker.retrieve(query=query, document_name="info_estrutura")
-
-    if not chunks:
-        return "Desculpe, não encontrei informações no momento"
-
-    parts = []
-    for c in chunks:
-        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
-        parts.append(f"{header}\n\n{c.content}")
-    return "\n\n---\n\n".join(parts)
-
-@tool
-async def info_politicas(query: str) -> str:
-    """
-    Consulta o conteúdo das Políticas e Procedimentos Internos da Viasoft com base em perguntas específicas.
-
-    Args:
-        query (str): Pergunta refinada com base na intenção do usuário, usada para buscar informações relevantes.
-
-    Returns:
-        str: Texto com os conhecimentos extraídos do documento oficial de Políticas e Procedimentos da Viasoft.
-    """
-    async with async_session() as session:
-        chunker = ChunkRetrieve(session=session)
-        chunks = await chunker.retrieve(query=query, document_name="info_politicas")
-
-    if not chunks:
-        return "Desculpe, não encontrei informações no momento"
-
-    parts = []
-    for c in chunks:
-        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
-        parts.append(f"{header}\n\n{c.content}")
-    return "\n\n---\n\n".join(parts)
-
-@tool
-async def info_implantacao(query: str) -> str:
-    """
-    Consulta o conteúdo de Informações do funcionamento da Implantação de software da Viasoft.
-
-    Args:
-        query (str): Pergunta refinada com base na intenção do usuário, usada para buscar informações relevantes.
-
-    Returns:
-        str: Texto com os conhecimentos extraídos do documento oficial de Políticas e Procedimentos da Viasoft.
-    """
-    async with async_session() as session:
-        chunker = ChunkRetrieve(session=session)
-        chunks = await chunker.retrieve(query=query, document_name="info_implantacao")
-
-    if not chunks:
-        return "Desculpe, não encontrei informações no momento"
-
-    parts = []
-    for c in chunks:
-        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
-        parts.append(f"{header}\n\n{c.content}")
-    return "\n\n---\n\n".join(parts)
-
-@tool
-async def info_etica(query: str) -> str:
-    """
-    Consulta o conteúdo de Código de Ética da Viasoft.
-
-    Args:
-        query (str): Pergunta refinada com base na intenção do usuário, usada para buscar informações relevantes.
-
-    Returns:
-        str: Texto com os conhecimentos extraídos do documento oficial de Políticas e Procedimentos da Viasoft.
-    """
-    async with async_session() as session:
-        chunker = ChunkRetrieve(session=session)
-        chunks = await chunker.retrieve(query=query, document_name="info_etica")
-
-    if not chunks:
-        return "Desculpe, não encontrei informações no momento"
-
-    parts = []
-    for c in chunks:
-        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
-        parts.append(f"{header}\n\n{c.content}")
-    return "\n\n---\n\n".join(parts)
-
-@tool
-async def info_produto_funcion(query: str) -> str:
-    """
-    Consulta o conteúdo das principais funcionalidades do sistema Construshow
-
-    Args:
-        query (str): Pergunta refinada com base na intenção do usuário, usada para buscar informações relevantes.
-
-    Returns:
-        str: Texto com os conhecimentos extraídos do documento oficial de Informações de Funcionalidade do Produto
-    """
-    async with async_session() as session:
-        chunker = ChunkRetrieve(session=session)
-        chunks = await chunker.retrieve(query=query, document_name="info_produto_funcion")
-
-    if not chunks:
-        return "Desculpe, não encontrei informações no momento"
-
-    parts = []
-    for c in chunks:
-        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
-        parts.append(f"{header}\n\n{c.content}")
-    return "\n\n---\n\n".join(parts)
-
-@tool
-async def info_ciclo_mel(query: str) -> str:
-    """
-    Consulta o conteúdo de como funciona o fluxo de melhoria e desenvolvimento do produto construshow
-
-    Args:
-        query (str): Pergunta refinada com base na intenção do usuário, usada para buscar informações relevantes.
-
-    Returns:
-        str: Texto com os conhecimentos extraídos do documento oficial de Informações de Funcionalidade do Produto
-    """
-    async with async_session() as session:
-        chunker = ChunkRetrieve(session=session)
-        chunks = await chunker.retrieve(query=query, document_name="info_ciclo_mel")
-
-    if not chunks:
-        return "Desculpe, não encontrei informações no momento"
-
-    parts = []
-    for c in chunks:
-        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
-        parts.append(f"{header}\n\n{c.content}")
-    return "\n\n---\n\n".join(parts)
-
-@tool
-async def info_swot(query: str) -> str:
-    """
-    Consulta o conteúdo de análise de fraquezas dos concorrentes e como o construshow se sai melhor do que eles
-
-    Args:
-        query (str): Pergunta refinada com base na intenção do usuário, usada para buscar informações relevantes.
-
-    Returns:
-        str: Texto com os conhecimentos extraídos do documento oficial de Informações de Funcionalidade do Produto
-    """
-    async with async_session() as session:
-        chunker = ChunkRetrieve(session=session)
-        chunks = await chunker.retrieve(query=query, document_name="info_swot")
-
-    if not chunks:
-        return "Desculpe, não encontrei informações no momento"
-
-    parts = []
-    for c in chunks:
-        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
-        parts.append(f"{header}\n\n{c.content}")
-    return "\n\n---\n\n".join(parts)
-
-#-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-#  FERRAMENTAS DE EXEMPLOS
-#-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-
-@tool
-async def exemp_rapport(query: str) -> str:
-    """
-    Ferramenta que retorna exemplos para superar objeções do cliente
-    Use sempre que o usuário tiver objeção sobre algum tema
-
-    Args:
-        query (str): Pergunta reformulada com base na intenção apontada pelo usuário.
-
-    Returns:
-        str: Texto com os conhecimentos das Políticas e Procedimentos da Viasoft
-    """
-    async with async_session() as session:
-        chunker = ChunkRetrieve(session=session)
-        chunks = await chunker.retrieve(query=query, document_name="exemp_rapport")
-
-    if not chunks:
-        return "Desculpe, não encontrei informações no momento"
-
-    parts = []
-    for c in chunks:
-        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
-        parts.append(f"{header}\n\n{c.content}")
-    return "\n\n---\n\n".join(parts)
-
-@tool
-async def exemp_objecoes(query: str) -> str:
-    """
-    Ferramenta que retorna exemplos para superar objeções do cliente
-    Use sempre que o usuário tiver objeção sobre algum tema
-
-    Args:
-        query (str): Pergunta reformulada com base na intenção apontada pelo usuário.
-
-    Returns:
-        str: Texto com os conhecimentos das Políticas e Procedimentos da Viasoft
-    """
-    async with async_session() as session:
-        chunker = ChunkRetrieve(session=session)
-        chunks = await chunker.retrieve(query=query, document_name="exemp_objecoes")
-
-    if not chunks:
-        return "Desculpe, não encontrei informações no momento"
-
-    parts = []
-    for c in chunks:
-        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
-        parts.append(f"{header}\n\n{c.content}")
-    return "\n\n---\n\n".join(parts)
-
-@tool
-async def exemp_neg_preco(query: str) -> str:
-    """
-    Ferramenta que retorna exemplos para superar objeções do cliente
-    Use sempre que o usuário tiver objeção sobre algum tema
-
-    Args:
-        query (str): Pergunta reformulada com base na intenção apontada pelo usuário.
-
-    Returns:
-        str: Texto com os conhecimentos das Políticas e Procedimentos da Viasoft
-    """
-    async with async_session() as session:
-        chunker = ChunkRetrieve(session=session)
-        chunks = await chunker.retrieve(query=query, document_name="exemp_neg_preco")
-
-    if not chunks:
-        return "Desculpe, não encontrei informações no momento"
-
-    parts = []
-    for c in chunks:
-        header = f"### {c.section_title} — {c.chunk_position} — {c.token_count} tokens"
-        parts.append(f"{header}\n\n{c.content}")
-    return "\n\n---\n\n".join(parts)
-
-@tool
-async def exemp_cases() -> str:
-    """Exemplo de cases de uso do Construshow"""
-    return """
-##VIVI_Case_construshow
-Cite **somente** os 6 cases oficiais abaixo; não invente dados:
-
-• **Espaço Smart (PR)** – 4 → 45 lojas; padrões + BI; roteirizador e app entregas.  
-• **Jacaré Home Center (MA)** – 3 → 10 lojas; estoque e compras otimizados; ERP + App Entregas + ConstruHelper.  
-• **Zona Nova – Redemac (RS)** – rastreabilidade lote/tonalidade; eliminou reentregas; referência logística.  
-• **Lojas Cacique (SP)** – migrou do CISS; multiunidade + IA de alertas; processos automatizados fim-a-fim.  
-• **Schirmann Home Center (RS)** – comandos únicos PDV-BI-financeiro; Power BI + ORION em tempo real.  
-• **Grupo GMAD / PRO / SIM** – mais de 20 lojas; homologado como alternativa ao SAP em grandes contas.
-
-**Uso recomendado**  
-Problema → Solução Construshow → Resultado curto. Conclua: “Que impacto teria algo assim na sua rede?”  
-
-**Proibições**  
-✘ Alterar números ou prazos.  
-✘ Criar histórias novas ou usar “aprox.” para mascarar dados ausentes.
-"""
-
-#-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-#  FERRAMENTAS DE CAPTURAS
-#-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-
-@tool
-async def capture_nome(phone: str, name: str) -> str:
-    """
-    Captura o nome do cliente e atualiza no banco de dados.
-    Deve ser chamada sempre que o cliente passar seu nome na conversa.
+    Captura dados do cliente e atualiza no banco de dados.
+    Deve ser chamada sempre que o cliente fornecer algum dos argumentos dentro de data.
     
     Args:
-        phone (str): número do telefone do lead `phone lead`
-        name (str): nome do cliente capturado
+        phone (str): número do telefone do lead.
+        data (Dict[str, str]): dicionário com campos a serem atualizados. Pode conter:
+            - name -> Nome do Lead
+            - email -> Email do Lead (NUNCA INVENTE)
+            - cnpj -> CNPJ do lead
+            - address -> Endereço do Lead
+            - corporate_reason -> Razão Social do Lead
+            - uf -> UF do Lead
+            - cidade -> Cidade do Lead
+            - quantidade_usuarios -> Quantidade de usuários da empresa (SOMENTE O NUMERO!)
+            - sistema_atual -> Nome do sistema que o cliente usa atualmente
+
+    Returns:
+        Dict[str, str]: dados atualizados com sucesso.
     """
     from app.db.database import async_session  # ajuste ao seu projeto
+    
     async with async_session() as session:
         await MemoryService.upsert_memory(
             session=session,
             phone=phone,
             memory={},  # mantém a memória textual como está
-            name=name
+            **data  # aplica os dados dinamicamente
         )
-    return {"name": name}
-
-@tool
-async def capture_email(phone: str, email: str) -> str:
-    """
-    Captura o email do cliente e atualiza no banco de dados.
-    Deve ser chamada sempre que o cliente passar seu email na conversa.
-    
-    Args:
-        phone (str): número do telefone do lead `phone lead`
-        email (str): email do cliente capturado
-    """
-    from app.db.database import async_session  # ajuste ao seu projeto
-    async with async_session() as session:
-        await MemoryService.upsert_memory(
-            session=session,
-            phone=phone,
-            memory={},  # mantém a memória textual como está
-            email=email
-        )
-    return {"email": email}
-
-@tool
-async def capture_address(phone: str, address: str) -> str:
-    """
-    Captura o endereço do cliente e atualiza no banco de dados.
-    Deve ser chamada sempre que o cliente passar seu endereço na conversa.
-    
-    Args:
-        phone (str): número do telefone do lead `phone lead`
-        address (str): endereço do cliente capturado
-    """
-    from app.db.database import async_session  # ajuste ao seu projeto
-    async with async_session() as session:
-        await MemoryService.upsert_memory(
-            session=session,
-            phone=phone,
-            memory={},  # mantém a memória textual como está
-            address=address
-        )
-    return {"address": address}
-
-@tool
-async def capture_cnpj(phone: str, cnpj: str) -> str:
-    """
-    Captura o CNPJ do cliente e atualiza no banco de dados.
-    Deve ser chamada sempre que o cliente passar seu CNPJ na conversa.
-    
-    Args:
-        phone (str): número do telefone do lead `phone lead`
-        cnpj (str): CNPJ do cliente capturado
-    """
-    from app.db.database import async_session  # ajuste ao seu projeto
-    async with async_session() as session:
-        await MemoryService.upsert_memory(
-            session=session,
-            phone=phone,
-            memory={},  # mantém a memória textual como está
-            cnpj=cnpj
-        )
-    return {"cnpj": cnpj}
-
-@tool
-async def capture_corporate_reason(phone: str, corporate_reason: str) -> str:
-    """
-    Captura a razão social ou nome da empresa do cliente e atualiza no banco de dados.
-    Deve ser chamada sempre que o cliente passar sua razão social ou nome da empresa na conversa.
-    
-    Args:
-        phone (str): número do telefone do lead `phone lead`
-        corporate_reason (str): razão social ou nome da empresa do cliente capturado
-    """
-    from app.db.database import async_session  # ajuste ao seu projeto
-    async with async_session() as session:
-        await MemoryService.upsert_memory(
-            session=session,
-            phone=phone,
-            memory={},  # mantém a memória textual como está
-            corporate_reason=corporate_reason
-        )
-    return {"corporate_reason": corporate_reason}
+    return data
 
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 #  FERRAMENTAS EXTERNAS

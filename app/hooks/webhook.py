@@ -1,25 +1,28 @@
+import uuid
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import Response
+from app.core.files import StorageManager
 from app.services.audio import download_audio
-from app.src.transcribe import generate_audio_with_openai, transcribe_with_openai
+from app.services.eleven import ElevenLabsClient
 from settings import settings
 from twilio.request_validator import RequestValidator
-from twilio.twiml.messaging_response import MessagingResponse
 from app.base.base import BaseMessage
 from app.base.schemas import MessagePayload
 from app.db.database import async_session
-from app.utils.url_base import get_public_base_url
+from twilio.rest import Client
+from fastapi import BackgroundTasks
 
 router = APIRouter(prefix="/message", tags=["Messages"])
 
 @router.post("")
 async def receive_message(
-    request:    Request,
-    From:       str = Form(...),  # número do usuário, ex: whatsapp:+5511987654321
-    To:         str = Form(...),  # seu número do sandbox, ex: whatsapp:+14155238886
-    Body:       str = Form(...),  # texto da mensagem
-    MessageSid: str = Form(...),  # ID da mensagem no Twilio
-    payload = MessagePayload
+    request: Request,
+    background_tasks: BackgroundTasks,
+    From: str = Form(...),
+    To: str = Form(...),
+    Body: str = Form(...),
+    MessageSid: str = Form(...),
+    payload=MessagePayload,
 ):
 
     signature = request.headers.get("X-Twilio-Signature", "")
@@ -47,42 +50,8 @@ async def receive_message(
             audio_url = form_vars.get(f"MediaUrl{i}")
             break
     
-    # 3) transcreve o áudio (caso exista)
-    if audio_url:
-        try:
-            audio_file = await download_audio(audio_url)
-
-            transcript = await transcribe_with_openai(audio_file)
-            payload.message = transcript
-        except Exception:
-            payload.message = "[Erro ao transcrever o áudio]"
-    else:
-        payload.message = Body
-    
-    # 4) define o remetente
-    payload.phone = From.replace('whatsapp:+', '')
-
-    # 5) chama o agente localmente
-    try:
-        async with async_session() as session:
-            agent = BaseMessage(request=payload, session=session)
-            # supondo que handle() retorne um objeto com .reply ou .text
-            reply_text = await agent.handle()
-            if audio_url:
-                audio_response = await generate_audio_with_openai(text=reply_text, phone=payload.phone)
-    except Exception:
-        reply_text = "Ocorreu um erro interno. Tente novamente mais tarde."
-
-    # 6) responde ao Twilio
-    twiml = MessagingResponse()
-
-    msg = twiml.message(reply_text)
-
-    # se o áudio foi gerado, adiciona a mídia
-    if audio_url:
-        public_audio_url = f"{get_public_base_url()}/static/audio/{payload.phone}/audio.mp3"
-        msg.media(public_audio_url)
-    return Response(content=str(twiml), media_type="application/xml")
+    background_tasks.add_task(processo_lento_e_resposta, From, To, audio_url, Body)
+    return Response(status_code=200, content="")
 
 @router.post("/test")
 async def receive_message_test(payload: MessagePayload):
@@ -90,3 +59,54 @@ async def receive_message_test(payload: MessagePayload):
         agent = BaseMessage(request=payload, session=session)
         reply_text = await agent.handle()
     return {"reply_text": reply_text}
+
+async def processo_lento_e_resposta(phone: str, to_phone: str, audio_url: str | None, body: str):
+    payload = MessagePayload()
+    payload.phone = phone.replace('whatsapp:+', '')
+
+    try:
+        if audio_url:
+            audio_file = await download_audio(audio_url)
+
+            eleven = ElevenLabsClient()
+            transcript = await eleven.speech_to_text(audio_file)
+            payload.message = transcript
+        else:
+            payload.message = body
+
+        async with async_session() as session:
+            agent = BaseMessage(request=payload, session=session)
+            reply_text = await agent.handle()
+
+        if audio_url:
+            eleven = ElevenLabsClient()
+            audio_response = await eleven.text_to_speech(reply_text)
+
+            storage = StorageManager()
+            storage_response = await storage.upload_bytes(
+                file_type='audio',
+                file_bytes=audio_response,
+                filename=f"{payload.phone}_{uuid.uuid1()}_audio.mp3",
+                content_type="audio/mpeg",
+                is_public=True,
+                fixed_url=True
+            )
+
+            # Envia resposta final via Twilio REST API
+            client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+            client.messages.create(
+                from_=to_phone,
+                to=f'whatsapp:+{payload.phone}',
+                body=reply_text,
+                media_url=[storage_response["url"]] if storage_response["success"] else None
+            )
+        else:
+            client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+            client.messages.create(
+                from_=to_phone,
+                to=f'whatsapp:+{payload.phone}',
+                body=reply_text
+            )
+
+    except Exception as e:
+        print(f"❌ Erro ao processar e enviar resposta: {e}")

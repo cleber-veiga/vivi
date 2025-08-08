@@ -32,11 +32,13 @@ async def auth_login():
         "prompt": "consent"
     }
     url = f"https://accounts.google.com/o/oauth2/auth?{urlencode(params)}"
-    return RedirectResponse(url)
+    return JSONResponse(content={
+        "url": url
+    })
 
 @router.get("/callback")
 async def auth_callback(code: str, session: AsyncSession = Depends(get_db)):
-    token_url = settings.GOOGLE_TOKE_URI
+    token_url = settings.GOOGLE_TOKEN_URI
     data = {
         "code": code,
         "client_id": settings.GOOGLE_CLIENT_ID,

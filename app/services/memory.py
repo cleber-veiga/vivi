@@ -26,14 +26,13 @@ class MemoryService:
         session: AsyncSession,
         phone: str,
         memory: Dict,
-        name: Optional[str] = None,
-        email: Optional[str] = None,
-        address: Optional[str] = None,
-        cnpj: Optional[str] = None,
-        corporate_reason: Optional[str] = None,
         metadata_json: Optional[Dict] = None,
+        **kwargs  # campos dinâmicos: name, email, address, etc.
     ) -> LeadMemory:
-        
+        """
+        Atualiza ou insere dados do lead no banco, incluindo memória e campos dinâmicos.
+        """
+
         stmt = select(LeadMemory).where(LeadMemory.phone == phone).limit(1)
         result = await session.execute(stmt)
         lead = result.scalar_one_or_none()
@@ -42,25 +41,30 @@ class MemoryService:
             lead.conversation_mem = memory
             flag_modified(lead, "conversation_mem")
 
-            if name: lead.name = name
-            if email: lead.email = email
-            if address: lead.address = address
-            if cnpj: lead.cnpj = cnpj
-            if corporate_reason: lead.corporate_reason = corporate_reason
-            if metadata_json: lead.metadata_json = metadata_json
+            # Atualiza somente os campos válidos da tabela LeadMemory
+            for key, value in kwargs.items():
+                if hasattr(lead, key) and value is not None:
+                    setattr(lead, key, value)
+
+            if metadata_json:
+                lead.metadata_json = metadata_json
         else:
-            lead = LeadMemory(
-                phone=phone,
-                name=name,
-                email=email,
-                address=address,
-                cnpj=cnpj,
-                corporate_reason=corporate_reason,
-                metadata_json=metadata_json,
-                conversation_mem=memory,
-            )
+            lead_data = {
+                "phone": phone,
+                "conversation_mem": memory,
+                "metadata_json": metadata_json,
+            }
+
+            # Filtra somente os campos válidos da model
+            model_fields = {c.name for c in LeadMemory.__table__.columns}
+            for key, value in kwargs.items():
+                if key in model_fields and value is not None:
+                    lead_data[key] = value
+
+            lead = LeadMemory(**lead_data)
             session.add(lead)
 
         await session.commit()
         await session.refresh(lead)
         return lead
+

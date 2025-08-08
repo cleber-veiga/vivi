@@ -8,7 +8,7 @@ from settings import settings
 from fastapi.middleware.cors import CORSMiddleware
 from app.db.database import engine
 from app.hooks import webhook
-from app.api import agent_routes, document_routes, auth_routes, static_routes
+from app.api import agent_routes, document_routes, auth_routes, static_routes, calendar_routes
 from pyngrok import ngrok
 from fastapi.staticfiles import StaticFiles
 
@@ -73,19 +73,20 @@ app.add_middleware(
 app.include_router(agent_routes.router, prefix="/api")
 app.include_router(document_routes.router, prefix="/api")
 app.include_router(static_routes.router, prefix="/api")
+app.include_router(calendar_routes.router, prefix="/api")
 app.include_router(auth_routes.router)
 
 # Rotas Webhooks
 app.include_router(webhook.router, prefix="/webhook")
 
-# if __name__ == "__main__":
-#     import uvicorn
-#     uvicorn.run(
-#         "main:app",
-#         host="0.0.0.0",
-#         port=int(os.environ.get("PORT", 8080)),
-#         log_level="info",
-#         proxy_headers=True,
-#         forwarded_allow_ips="*",
-#         reload=False
-#     )
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=int(settings.SERVER_PORT),
+        log_level="info",
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+        reload=False
+    )
