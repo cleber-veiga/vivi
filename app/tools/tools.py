@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from langchain.tools import tool
 from app.base.schemas import AgentState
 from app.db.database import async_session
@@ -27,7 +27,6 @@ async def semantic_documentary_search(queries: Dict[str, str]) -> str:
     
     Types:
         "info_..." -> Documentos que iniciam com isso são documentos com ricos em informações, conteúdo, dados
-        "comport_..." -> Documentos que iniciam com isso são documentos que definem formas de agir, de se comportar em diferentes situações
         "exemp_..." -> Documentos que iniciam com isso são documentos que possuem exemplos práticos e reais de diversas situações
 
     Documents:
@@ -39,14 +38,19 @@ async def semantic_documentary_search(queries: Dict[str, str]) -> str:
         - "info_ciclo_mel" -> Use quando precisar saber como funciona o fluxo de melhoria e desenvolvimento do produto construshow
         - "info_politicas" -> Use quando precisar de conteúdo das Políticas e Procedimentos Internos da Viasoft com base em perguntas específicas.
         - "info_historia" -> Use quando precisar de informações institucionais da Viasoft, como história, missão e valores.
-        - "info_escopo_esperado" -> 
-        - "comport_saudacao_inicial" -> Definições de comportamento ao iniciar uma conversa
-        - "comport_encerra" -> Definições de comportamento ao encerrar conversas
-        - "comport_invalidos" -> Definições de comportamento frente a clientes que estão fora do requisitos mínimos para prosseguir ou estão fora do escopo
+        - "info_escopo_esperado" -> Use quando precisar de informações sobre quais clientes atendementos
+        - "info_suporte_viasoft" -> Use quando precisar de informações de como funciona o suporte da Viasoft
+        - "info_outros_produtos" -> Use quando precisar de detalhamentos sobre outros produtos da Viasoft, excluindo o Construshow, focando em suas funcionalidades e benefícios para diversos setores.
+        - "info_tecnico_constru" -> Use para obter informações técnicas do sistema Construshow, incluindo linguagem de desenvolvimento (Delphi Berlin com componentes TMS), banco de dados (Oracle 19c ou superior, com destaque para Oracle Cloud e Exadata) e requisitos mínimos de infraestrutura para diferentes volumes de usuários.
+        - "info_cases_sucesso" -> Use sempre que precisar saber alguns clientes que já usam construshow ou saber de cases de sucesso, use para criar valor ao produto
+        - "info_manifesto_ceo" -> Manifesto do CEO, que contem o olhar do CEO sobre os fatores que compõem o verdadeiro poder da Viasoft
+        - "info_reajuste_contratos" -> Informações de como funciona os reajustes de contrato
+        - "info_eugenius" -> Informações do Eugenius, uma IA mentora para líderes, detalhando seus perfis de usuário, dores que resolve, jornada de compra, proposta de valor por setor, análise SWOT e funcionalidades
         - "exemp_rapport" -> Exemplos para criar rapport e conexão com clientes
         - "exemp_objecoes" -> Exemplos para superar objeções do cliente
-        - "exemp_neg_preco" -> Exemplos de como agir mencionar preço, taxas, reajustes e coisas do tipo
-
+        - "exemp_neg_preco" -> Exemplos de como agir mencionar preço, taxas, reajustes de contrato e coisas do tipo
+        - "exemp_resposta_concorrente" -> Exemplos de respostas quando usuário mencionar sistemas concorrentes ao Construshow
+        
     Args:
         queries (Dict[str, str]): Dicionário onde:
             - A chave é o nome do documento.
@@ -94,23 +98,23 @@ async def semantic_documentary_search(queries: Dict[str, str]) -> str:
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
 @tool
-async def capture_lead_data(phone: str, data: Dict[str, str]) -> Dict[str, str]:
+async def capture_lead_data(phone: str, data: Dict[str, Any]) -> Dict[str, str]:
     """
     Captura dados do cliente e atualiza no banco de dados.
     Deve ser chamada sempre que o cliente fornecer algum dos argumentos dentro de data.
     
     Args:
         phone (str): número do telefone do lead.
-        data (Dict[str, str]): dicionário com campos a serem atualizados. Pode conter:
-            - name -> Nome do Lead
-            - email -> Email do Lead (NUNCA INVENTE)
-            - cnpj -> CNPJ do lead
-            - address -> Endereço do Lead
-            - corporate_reason -> Razão Social do Lead
-            - uf -> UF do Lead
-            - cidade -> Cidade do Lead
-            - quantidade_usuarios -> Quantidade de usuários da empresa (SOMENTE O NUMERO!)
-            - sistema_atual -> Nome do sistema que o cliente usa atualmente
+        data (Dict[str, Any]): dicionário com campos a serem atualizados. Pode conter:
+            - name (str) -> Nome do Lead
+            - email (str) -> Email do Lead (NUNCA INVENTE)
+            - cnpj (str) -> CNPJ do lead
+            - corporate_reason (str) -> Razão Social do Lead
+            - uf (str) -> UF do Lead
+            - cidade (str) -> Cidade do Lead
+            - quantidade_usuarios (int) -> Quantidade de usuários da empresa (SOMENTE O NUMERO!)
+            - sistema_atual (str) -> Nome do sistema que o cliente usa atualmente
+            - desafios (str) -> Desafios, dores, reclamações que o cliente apontar na sua pergunta, se houver mais de um separar por vírgula
 
     Returns:
         Dict[str, str]: dados atualizados com sucesso.
@@ -124,6 +128,14 @@ async def capture_lead_data(phone: str, data: Dict[str, str]) -> Dict[str, str]:
             memory={},  # mantém a memória textual como está
             **data  # aplica os dados dinamicamente
         )
+        if "desafios" in data:
+            for item in (x.strip() for x in data["desafios"].split(",") if x.strip()):
+                await MemoryService.add_desafio_cliente(
+                    session=session,
+                    phone=phone,
+                    desafio=item
+                )
+
     return data
 
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=

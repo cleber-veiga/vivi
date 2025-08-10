@@ -7,6 +7,7 @@ from langgraph.prebuilt import ToolNode, create_react_agent
 from app.core.memory import SimpleMemory
 from app.services.memory import MemoryService
 from app.src.summarize import summarize_conversation
+from app.src.typing import LeadData
 from app.tools.index import tools
 from datetime import datetime
 from langgraph.graph import StateGraph, END
@@ -16,10 +17,13 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, Prom
 from app.base.prompt import (
     AGENT_PREFIX_REACT,
     AGENT_SUFFIX_REACT,
-    PROMPT
+    PROMPT,
+    PROMPT_REACT
 )
 from langgraph.errors import GraphRecursionError
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.utils.url_videos import get_url_videos_disponíveis
 
 class UniqueToolNode(ToolNode):
     async def invoke(self, state):
@@ -56,11 +60,14 @@ class BaseMessage:
         self.llm_factory = LLMFactory()
         self.session = session
         self.phone = self.request.phone.replace('whatsapp:+', '')
-        
+        self.lead_data_1 = LeadData()
+        self.lead_data = LeadData()
 
     async def handle(self):
         question = self.request.message
         phone = self.phone.replace('whatsapp:+', '')
+        self.lead_data.update(phone=phone)
+        self.lead_data_1.update(phone=phone)
 
         # 1. Buscar memória existente
         lead = await MemoryService.get_memory_by_phone(self.session, phone)
@@ -80,8 +87,6 @@ class BaseMessage:
 
         # 4. Adicionar resposta do agente à memória
         memory.add_message(role="assistant", content=resposta)
-
-
 
         # 5. Salvar memória atualizada no banco
         await MemoryService.upsert_memory(
@@ -117,7 +122,7 @@ class BaseMessage:
                 print("⚠️ Atenção: Ferramenta foi ignorada no fluxo. Ação declarada, mas não executada.")
         return "Desculpe, algo deu errado e acabei não entendendo sua pergunta. Por favor, não exite em perguntar novamente"
 
-    def divide_memory(self, memoria: Dict[str, List[Dict[str, str]]], limite: int = 4) -> Tuple[List[Dict[str, str]], List[Dict[str, str]]]:
+    def divide_memory(self, memoria: Dict[str, List[Dict[str, str]]], limite: int = 6) -> Tuple[List[Dict[str, str]], List[Dict[str, str]]]:
         """
         Divide a memória da conversa entre as últimas N interações e o restante anterior.
         
@@ -143,13 +148,16 @@ class BaseMessage:
         keys_permitidas = ["phone", "name", "email", "address", "cnpj", "corporate_reason"]
         return {key: state.get(key) for key in keys_permitidas if state.get(key) is not None}
 
-    def _build_parameters_from_state(self, state: dict) -> str:
-        keys_permitidas = ["phone", "name", "email", "address", "cnpj", "corporate_reason"]
+    def _build_parameters_from_state(self, data: dict) -> str:
+        keys_permitidas = [
+            "phone", "name", "email", "address", "cnpj", "corporate_reason",
+            "uf", "cidade", "quantidade_usuarios", "sistema_atual", "desafios", "videos_enviados"
+        ]
 
         parameters = []
         for key in keys_permitidas:
-            if state.get(key) is not None:
-                parameters.append(f"<{key}>{state.get(key)}</{key}>")
+            if data.get(key) is not None and data.get(key) != '':
+                parameters.append(f"<{key}>{data.get(key)}</{key}>")
             else:
                 parameters.append(f"<{key}>Ainda não informado</{key}>")
         return "".join(parameters)
@@ -204,6 +212,18 @@ class BaseMessage:
         
         return messages[index_ultima_human:]
     
+    def _build_videos_tags(self):
+        data = get_url_videos_disponíveis()
+        if not data:
+            return ""
+
+        tags = []
+        for key, item in data.items():
+            desc = item.get("description", "")
+            tags.append(f"<{key}>{desc}</{key}>")
+
+        return "".join(tags)
+
     def _build_memory_recent(self, message_json):
         converted_messages = []
         for msg in message_json:
@@ -235,9 +255,21 @@ class BaseMessage:
         if lead and lead.conversation_mem:
             memory = lead.conversation_mem
             memory_recent, memory_long = self.divide_memory(memory, limite=4)
+            lead.name and self.lead_data.update(name=lead.name)
+            lead.email and self.lead_data.update(email=lead.email)
+            lead.address and self.lead_data.update(address=lead.address)
+            lead.cnpj and self.lead_data.update(cnpj=lead.cnpj)
+            lead.corporate_reason and self.lead_data.update(corporate_reason=lead.corporate_reason)
+            lead.uf and self.lead_data.update(uf=lead.uf)
+            lead.cidade and self.lead_data.update(cidade=lead.cidade)
+            lead.quantidade_usuarios and self.lead_data.update(quantidade_usuarios=lead.quantidade_usuarios)
+            lead.sistema_atual and self.lead_data.update(sistema_atual=lead.sistema_atual)
+            lead.desafios and self.lead_data.update(desafios=lead.desafios)
+            lead.videos_enviados and self.lead_data.update(videos_enviados=lead.videos_enviados)
         else:
             memory_recent, memory_long = [], []
 
+        
         simple_memory = SimpleMemory()
         memory_recent_str = self._build_memory_recent(memory_recent)
         memory_recent = simple_memory.message_converter(memory_recent)
@@ -262,10 +294,13 @@ class BaseMessage:
         if memory_long:
             summary = await summarize_conversation(memory_long, llm)
             
-        template = "\n\n".join([
-            AGENT_PREFIX_REACT,
-            AGENT_SUFFIX_REACT
-        ])
+        # template = "\n\n".join([
+        #     AGENT_PREFIX_REACT,
+        #     AGENT_SUFFIX_REACT
+        # ])
+
+        template = PROMPT_REACT
+
         tools_used_str = ", ".join(initial_state["tools_used"]) or "nenhuma até o momento"
         system_prompt = template \
             .replace("{tool_names}", tool_names) \
@@ -273,7 +308,7 @@ class BaseMessage:
             .replace("{phone}", str(self.phone)) \
             .replace("{memory}", str(memory_recent_str)) \
             .replace("{tools_descriptions}", str(tools_descriptions)) \
-            .replace("{current_state}", str(current_state)) \
+            .replace("{current_state}", self._build_parameters_from_state(self.lead_data.to_dict()),) \
             .replace("{tools_used_str}", tools_used_str)
 
         chat_prompt = ChatPromptTemplate.from_messages([
@@ -311,14 +346,29 @@ class BaseMessage:
 
         template_formulate = PromptTemplate.from_template(PROMPT)
 
-        chain = template_formulate | llm_formulator
+        lead_1 = await MemoryService.get_memory_by_phone(self.session, self.phone)
+        if lead_1:
+            lead_1.name and self.lead_data_1.update(name=lead_1.name)
+            lead_1.email and self.lead_data_1.update(email=lead_1.email)
+            lead_1.address and self.lead_data_1.update(address=lead_1.address)
+            lead_1.cnpj and self.lead_data_1.update(cnpj=lead_1.cnpj)
+            lead_1.corporate_reason and self.lead_data_1.update(corporate_reason=lead_1.corporate_reason)
+            lead_1.uf and self.lead_data_1.update(uf=lead_1.uf)
+            lead_1.cidade and self.lead_data_1.update(cidade=lead_1.cidade)
+            lead_1.quantidade_usuarios and self.lead_data_1.update(quantidade_usuarios=lead_1.quantidade_usuarios)
+            lead_1.sistema_atual and self.lead_data_1.update(sistema_atual=lead_1.sistema_atual)
+            lead_1.desafios and self.lead_data_1.update(desafios=lead_1.desafios)
+            lead_1.videos_enviados and self.lead_data_1.update(videos_enviados=lead_1.videos_enviados)
 
+        chain = template_formulate | llm_formulator
+        videos_tags = self._build_videos_tags()
         response = await chain.ainvoke({
             "now": str(now),
             "tool_content": tool_content,
             "summary": summary,
             "memory": memory_recent_str,
-            "parameters": self._build_parameters_from_state(result_state),
+            "parameters": self._build_parameters_from_state(self.lead_data_1.to_dict()),
+            "videos": videos_tags,
             "input": question
         })
         response = response.content

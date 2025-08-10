@@ -14,6 +14,8 @@ class LeadMemory(Base):
     uf = Column(String(10), nullable=True)
     cidade  = Column(String(255), nullable=True)
     quantidade_usuarios = Column(Integer, nullable=True)
+    videos_enviados = Column(String(500), nullable=True)
+    desafios = Column(String(500), nullable=True)
     sistema_atual  = Column(String(255), nullable=True)
     metadata_json = Column(JSON, nullable=True)
     conversation_mem = Column(JSON, nullable=False)

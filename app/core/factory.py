@@ -37,7 +37,7 @@ class LLMFactory:
         """
         return ChatOpenAI(
             openai_api_key=self.api_key,
-            model="o4-mini",
+            model="o3-mini",
             temperature=1,
             max_tokens=4096,
             callback_manager=callback_manager
@@ -48,7 +48,7 @@ class LLMFactory:
         Retorna a instância principal da LLM (OpenAI).
         """
         return ChatOpenAI(
-            model="gpt-4o-mini",
+            model="gpt-4.1",
             temperature=0.7,
             max_tokens=512,
             callback_manager=callback_manager

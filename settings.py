@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     GOOGLE_TOKEN_URI: str = "https://oauth2.googleapis.com/token"
     REDIRECT_URI: str = Field(..., env="REDIRECT_URI")
 
-    # GOOGLE_APPLICATION_CREDENTIALS: str = Field(..., env="GOOGLE_APPLICATION_CREDENTIALS")
+    GOOGLE_APPLICATION_CREDENTIALS: str = Field(..., env="GOOGLE_APPLICATION_CREDENTIALS")
 
     #Eleven Labs
     ELEVEN_LABS_API_KEY: str = Field(..., env="REDIRECT_URI")
