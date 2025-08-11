@@ -145,12 +145,12 @@ class BaseMessage:
         """
         Extrai os campos úteis do estado do agente para salvar como metadata_json.
         """
-        keys_permitidas = ["phone", "name", "email", "address", "cnpj", "corporate_reason"]
+        keys_permitidas = ["phone", "name", "email", "cnpj", "corporate_reason"]
         return {key: state.get(key) for key in keys_permitidas if state.get(key) is not None}
 
     def _build_parameters_from_state(self, data: dict) -> str:
         keys_permitidas = [
-            "phone", "name", "email", "address", "cnpj", "corporate_reason",
+            "phone", "name", "email", "cnpj", "corporate_reason",
             "uf", "cidade", "quantidade_usuarios", "sistema_atual", "desafios", "videos_enviados"
         ]
 

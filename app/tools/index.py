@@ -35,6 +35,6 @@ tools = [
     capture_lead_data,
     
     # FERRAMENTAS EXTERNAS
-    serv_agenda_disp,
+    # serv_agenda_disp,
     serv_agenda
 ]

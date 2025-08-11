@@ -1,11 +1,16 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from langchain.tools import tool
+from app.base.schemas import AgentState
+from app.db.database import async_session
 from app.services.calendar import check_availability, schedule_event
 from app.services.memory import MemoryService
 from app.src.chunk import ChunkRetrieve
 from langchain.tools import tool
 from app.db.database import async_session
-from datetime import datetime, timedelta, time, date as date_cls
+from datetime import datetime, timedelta, time
+import requests
+from sqlalchemy import select
+from app.models import Agent, OAuthToken
 
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 #  FERRAMENTA DE INFORMAÇÃO
@@ -138,38 +143,113 @@ async def capture_lead_data(phone: str, data: Dict[str, Any]) -> Dict[str, str]:
 #  FERRAMENTAS EXTERNAS
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
-BUSINESS_BLOCKS = [
-    (time(8, 0), time(12, 0)),
-    (time(13, 30), time(18, 0)),
-]
+@tool
+async def serv_agenda_disp(data: Optional[str] = None, hora: Optional[str] = None) -> list:
+    """
+    Consulta os horários disponíveis do agente nos próximos 10 dias (exceto sábados e domingos),
+    durante o horário comercial: das 08:00 às 12:00 e das 13:30 às 18:00.
 
-def _iter_candidate_slots(day: date_cls, slot_minutes: int = 60):
-    """Gera slots possíveis (HH:MM) dentro dos blocos de negócio, em steps de 30min,
-    garantindo que o término caiba dentro do bloco."""
-    step = timedelta(minutes=30)
-    dur = timedelta(minutes=slot_minutes)
-    for start_t, end_t in BUSINESS_BLOCKS:
-        cur = datetime.combine(day, start_t)
-        end_dt = datetime.combine(day, end_t)
-        while cur + dur <= end_dt:
-            yield cur.strftime("%Y-%m-%d"), cur.strftime("%H:%M")
-            cur += step
+    Se o cliente fornecer uma data e hora específicas, será feita a verificação.
+    Se estiver ocupado, serão sugeridos horários alternativos.
+    Se nada for informado, retorna todos os horários disponíveis nos próximos 10 dias.
 
-def _next_business_days(start_day: date_cls, count: int) -> List[date_cls]:
-    """Retorna os próximos 'count' dias úteis após 'start_day'."""
-    days = []
-    d = start_day
-    while len(days) < count:
-        d += timedelta(days=1)
-        if d.weekday() < 5:  # 0=segunda ... 6=domingo
-            days.append(d)
-    return days
+    Args:
+        data (str, opcional): Data desejada no formato YYYY-MM-DD
+        hora (str, opcional): Hora desejada no formato HH:MM
 
+    Returns:
+        Lista de horários disponíveis ou sugestão alternativa
+    """
+    agent_id = 1  # fixo por enquanto
+    async with async_session() as session:
+        agora = datetime.now()
+        horarios_disponiveis = []
+
+        # Caso data e hora sejam fornecidos, verificar diretamente
+        if data and hora:
+            disponibilidade = await check_availability(
+                session=session,
+                agent_id=agent_id,
+                data=data,
+                hora=hora,
+                duracao_minutos=30
+            )
+            if disponibilidade["disponivel"]:
+                return [f"{data} {hora} disponível para agendamento."]
+            else:
+                # Sugerir próximos horários disponíveis
+                sugestoes = []
+                for dias in range(1, 11):
+                    data_alvo = agora + timedelta(days=dias)
+                    if data_alvo.weekday() >= 5:
+                        continue
+
+                    blocos = [
+                        (time(8, 0), time(12, 0)),
+                        (time(13, 30), time(18, 0)),
+                    ]
+
+                    for inicio, fim in blocos:
+                        horario_atual = datetime.combine(data_alvo.date(), inicio)
+                        while horario_atual.time() < fim:
+                            hora_alt = horario_atual.strftime("%H:%M")
+                            data_alt = horario_atual.strftime("%Y-%m-%d")
+
+                            disponibilidade_alt = await check_availability(
+                                session=session,
+                                agent_id=agent_id,
+                                data=data_alt,
+                                hora=hora_alt,
+                                duracao_minutos=30
+                            )
+
+                            if disponibilidade_alt["disponivel"]:
+                                sugestoes.append(f"{data_alt} {hora_alt}")
+                            if len(sugestoes) >= 5:
+                                break
+                            horario_atual += timedelta(minutes=30)
+
+                    if len(sugestoes) >= 5:
+                        break
+
+                return [f"Horário {data} {hora} indisponível. Sugestões:"] + sugestoes
+
+        # Caso não tenha data/hora: listar todos os disponíveis nos próximos 10 dias
+        for dias in range(1, 11):
+            data_alvo = agora + timedelta(days=dias)
+            if data_alvo.weekday() >= 5:
+                continue
+
+            blocos = [
+                (time(8, 0), time(12, 0)),
+                (time(13, 30), time(18, 0)),
+            ]
+
+            for inicio, fim in blocos:
+                horario_atual = datetime.combine(data_alvo.date(), inicio)
+                while horario_atual.time() < fim:
+                    hora_formatada = horario_atual.strftime("%H:%M")
+                    data_formatada = horario_atual.strftime("%Y-%m-%d")
+
+                    disponibilidade = await check_availability(
+                        session=session,
+                        agent_id=agent_id,
+                        data=data_formatada,
+                        hora=hora_formatada,
+                        duracao_minutos=30
+                    )
+
+                    if disponibilidade["disponivel"]:
+                        horarios_disponiveis.append(f"{data_formatada} {hora_formatada}")
+
+                    horario_atual += timedelta(minutes=30)
+
+        return horarios_disponiveis or ["Nenhum horário disponível nos próximos 10 dias."]
+    
 @tool
 async def serv_agenda(data: str, hora: str, cliente: str, assunto: str, email_cliente: str) -> dict:
     """
     Agenda um horário no Google Calendar.
-    Se o horário estiver ocupado, sugere 2 horários no mesmo dia e 2 em cada um dos próximos 2 dias úteis.
     A IA deve garantir que todos os campos sejam fornecidos: data, hora, nome do cliente, assunto e e-mail do cliente.
     Sempre consulte a disponibilidade antes de agendar.
     O email deve ser captado do Estado Atual e caso não esteja lá solicite ao usuário. NUNCA INVENTE EMAIL!
@@ -180,8 +260,12 @@ async def serv_agenda(data: str, hora: str, cliente: str, assunto: str, email_cl
         cliente (str): Nome do cliente
         assunto (str): Assunto do compromisso
         email_cliente (str): E-mail do cliente para ser adicionado como convidado
+
+    Returns:
+        Mensagem de confirmação do agendamento.
     """
     campos_faltando = []
+
     if not data:
         campos_faltando.append("data")
     if not hora:
@@ -195,13 +279,15 @@ async def serv_agenda(data: str, hora: str, cliente: str, assunto: str, email_cl
 
     if campos_faltando:
         campos = ", ".join(campos_faltando)
-        return {"erro": f"Parâmetro(s) faltando: {campos}. Me informe ou solicite ao usuário caso não tenha."}
+        return {
+            "erro": f"Parâmetro(s) faltando: {campos}. Me informe ou solicite ao usuário caso não tenha."
+        }
 
     agent_id = 1
-    duracao_minutos = 60  # padrão: 1h por compromisso
+    duracao_minutos = 60  # duração padrão de 1 hora
 
     async with async_session() as session:
-        # 1) Verifica disponibilidade do slot solicitado
+        # Verifica se o horário está disponível
         disponibilidade = await check_availability(
             session=session,
             agent_id=agent_id,
@@ -210,67 +296,22 @@ async def serv_agenda(data: str, hora: str, cliente: str, assunto: str, email_cl
             duracao_minutos=duracao_minutos
         )
 
-        if disponibilidade["disponivel"]:
-            # 2) Agenda imediatamente
-            try:
-                resultado = await schedule_event(
-                    session=session,
-                    agent_id=agent_id,
-                    data=data,
-                    hora=hora,
-                    cliente=cliente,
-                    assunto=assunto,
-                    duracao_minutos=duracao_minutos,
-                    email_convidado=email_cliente
-                )
-                return resultado  # {"status":"sucesso", ...}
-            except Exception as e:
-                return {"erro": f"Erro ao agendar: {str(e)}"}
+        if not disponibilidade["disponivel"]:
+            return {
+                "erro": "Horário indisponível. Consulte os horários disponíveis antes de tentar agendar."
+            }
 
-        # 3) Caso indisponível, gerar sugestões inteligentes
         try:
-            requested_day = datetime.fromisoformat(data).date()
-        except Exception:
-            # Fallback leve: tenta só a parte de data yyyy-mm-dd
-            requested_day = datetime.fromisoformat(data[:10]).date()
-
-        # 3.1) Dois horários no mesmo dia (primeiros livres)
-        sugestoes: List[Dict[str, str]] = []
-        for d, h in _iter_candidate_slots(requested_day, duracao_minutos):
-            if d == data and h == hora:
-                continue  # ignora o slot originalmente pedido
-            disponibilidade_alt = await check_availability(
+            resultado = await schedule_event(
                 session=session,
                 agent_id=agent_id,
-                data=d,
-                hora=h,
-                duracao_minutos=duracao_minutos
+                data=data,
+                hora=hora,
+                cliente=cliente,
+                assunto=assunto,
+                duracao_minutos=duracao_minutos,
+                email_convidado=email_cliente  # novo argumento
             )
-            if disponibilidade_alt["disponivel"]:
-                sugestoes.append({"data": d, "hora": h})
-            if len(sugestoes) >= 2:
-                break
-
-        # 3.2) Próximos 2 dias úteis: 2 sugestões em cada dia
-        for day in _next_business_days(requested_day, 2):
-            por_dia = 0
-            for d, h in _iter_candidate_slots(day, duracao_minutos):
-                disponibilidade_alt = await check_availability(
-                    session=session,
-                    agent_id=agent_id,
-                    data=d,
-                    hora=h,
-                    duracao_minutos=duracao_minutos
-                )
-                if disponibilidade_alt["disponivel"]:
-                    sugestoes.append({"data": d, "hora": h})
-                    por_dia += 1
-                if por_dia >= 2:
-                    break
-
-        # 4) Retorno estruturado para o LLM decidir o próximo passo com o usuário
-        return {
-            "status": "indisponivel",
-            "mensagem": f"Horário {data} {hora} indisponível.",
-            "sugestoes": sugestoes
-        }
+            return resultado
+        except Exception as e:
+            return {"erro": f"Erro ao agendar: {str(e)}"}

@@ -165,7 +165,6 @@ async def processo_lento_e_resposta(phone: str, to_phone: str, audio_url: str | 
                     body=caption,
                     media_url=[url_video]
                 )
-                list_video.ap
                 async with async_session() as session:
                     await MemoryService.add_video_enviado(
                         session=session,

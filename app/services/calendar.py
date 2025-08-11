@@ -25,7 +25,7 @@ def _mask_token(tok: str, show_start: int = 6, show_end: int = 6) -> str:
         return tok[:3] + "..."  # bem curtinho, só pra log
     return f"{tok[:show_start]}...{tok[-show_end:]}"
 
-async def get_valid_google_credentials(session: AsyncSession, agent_id: int) -> tuple[str, str]:
+async def get_valid_google_credentials(session: AsyncSession, agent_id: int, force_refresh: bool = False) -> tuple[str, str]:
     """
     Recupera o token OAuth e SÓ RENOVA se estiver expirado (ou perto) usando um SKEW.
     Retorna: (access_token, calendar_id_ou_email)
@@ -72,7 +72,7 @@ async def get_valid_google_credentials(session: AsyncSession, agent_id: int) -> 
     )
 
     # ---------- Decide e (talvez) renova ----------
-    if consider_expired:
+    if consider_expired or force_refresh:
         print("[OAuth] Token expirado ou prestes a expirar. Renovando...")
         if not creds.refresh_token:
             print("[OAuth][ERRO] Sem refresh_token para renovar.")
@@ -113,29 +113,52 @@ async def get_valid_google_credentials(session: AsyncSession, agent_id: int) -> 
 
 
 async def check_availability(session: AsyncSession, agent_id: int, data: str, hora: str, duracao_minutos: int = 60):
-    access_token, calendar_id = await get_valid_google_credentials(session, agent_id)
+    """
+    Verifica disponibilidade no Google Calendar. Se receber 401 (credencial inválida),
+    força refresh do token, atualiza no banco e reenvia a requisição uma única vez.
+    """
+    def _post_freebusy(token: str, calendar_id: str, dt_inicio_iso: str, dt_fim_iso: str):
+        url = "https://www.googleapis.com/calendar/v3/freeBusy"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+        body = {
+            "timeMin": dt_inicio_iso,
+            "timeMax": dt_fim_iso,
+            "items": [{"id": calendar_id}]
+        }
+        # timeout curto para não travar o fluxo; ajuste se necessário
+        return requests.post(url, headers=headers, json=body, timeout=(5, 20))
 
+    # 1) Monta janela no fuso correto
     tz = pytz.timezone("America/Sao_Paulo")
     dt_inicio = tz.localize(datetime.fromisoformat(f"{data}T{hora}"))
     dt_fim = dt_inicio + timedelta(minutes=duracao_minutos)
 
-    url = "https://www.googleapis.com/calendar/v3/freeBusy"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
-    body = {
-        "timeMin": dt_inicio.isoformat(),
-        "timeMax": dt_fim.isoformat(),
-        "items": [{"id": calendar_id}]
-    }
+    # 2) Obtém credenciais válidas (sem forçar refresh)
+    access_token, calendar_id = await get_valid_google_credentials(session, agent_id)
 
-    response = requests.post(url, headers=headers, json=body)
+    # 3) Primeira tentativa
+    response = _post_freebusy(access_token, calendar_id, dt_inicio.isoformat(), dt_fim.isoformat())
+
+    # 4) Se 401, força refresh e tenta só mais uma vez
+    if response.status_code == 401:
+        # força refresh + persistência no banco
+        access_token, calendar_id = await get_valid_google_credentials(session, agent_id, force_refresh=True)
+        response = _post_freebusy(access_token, calendar_id, dt_inicio.isoformat(), dt_fim.isoformat())
+
+    # 5) Trata respostas não-2xx
+    if not (200 <= response.status_code < 300):
+        try:
+            result = response.json()
+            msg = result.get("error", {}).get("message", response.text)
+        except Exception:
+            msg = response.text
+        raise Exception(f"Erro ao consultar disponibilidade: {msg}")
+
+    # 6) Sucesso
     result = response.json()
-
-    if response.status_code != 200:
-        raise Exception(f"Erro ao consultar disponibilidade: {result.get('error', {}).get('message', response.text)}")
-
     busy = result["calendars"][calendar_id]["busy"]
     return {
         "disponivel": not bool(busy),
