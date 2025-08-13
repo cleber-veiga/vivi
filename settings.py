@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     #Twilio
     TWILIO_AUTH_TOKEN: str = Field(..., env="TWILIO_AUTH_TOKEN")
     TWILIO_ACCOUNT_SID: str = Field(..., env="TWILIO_ACCOUNT_SID")
+    TWILIO_WHATSAPP_FROM: str = 'whatsapp:+554691262489'
     
     # Google Calendar
     GOOGLE_CLIENT_ID: str = Field(..., env="GOOGLE_CLIENT_ID")

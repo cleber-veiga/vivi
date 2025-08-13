@@ -2,7 +2,7 @@ import json
 from sqlalchemy.orm import Session
 from app.models.lead_memory import LeadMemory
 from sqlalchemy.exc import NoResultFound
-from typing import Optional, Dict
+from typing import Any, Optional, Dict
 from typing import List
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from app.models.chunk import Chunk
@@ -11,6 +11,7 @@ from sqlalchemy import select, delete
 from app.src.embedding import EmbeddingProcessor
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
+from datetime import datetime, timezone
 
 def _parse_desafios(texto: Optional[str]) -> list[str]:
     if not texto:
@@ -176,3 +177,82 @@ class MemoryService:
         await session.commit()
         await session.refresh(lead)
         return lead
+
+def _coerce_to_messages_container(mem: Optional[Any]) -> tuple[Any, List[Dict[str, str]], str]:
+    """
+    Retorna (container, messages_ref, container_type)
+
+    - Se a memória for uma LISTA de mensagens, mantém como lista.
+    - Se for um DICT com 'messages', usa essa lista.
+    - Se houver 'history' (legado), migra para 'messages' com o shape {role, content}.
+    - Se não existir nada, cria uma lista vazia.
+    """
+    # Caso 1: já é lista de mensagens [{"role","content"}, ...]
+    if isinstance(mem, list):
+        return mem, mem, "list"
+
+    # Caso 2: é dict
+    if isinstance(mem, dict):
+        # Migra history -> messages, se existir e não houver messages
+        if "messages" not in mem:
+            if isinstance(mem.get("history"), list):
+                msgs = []
+                for h in mem["history"]:
+                    if isinstance(h, dict):
+                        role = h.get("role")
+                        text = h.get("text")
+                        if role in ("user", "assistant") and isinstance(text, str):
+                            msgs.append({"role": role, "content": text})
+                mem["messages"] = msgs
+                mem.pop("history", None)
+
+        # Garante 'messages'
+        if not isinstance(mem.get("messages"), list):
+            mem["messages"] = []
+
+        return mem, mem["messages"], "dict"
+
+    # Caso 3: vazio / outro tipo -> lista nova
+    mem_list: List[Dict[str, str]] = []
+    return mem_list, mem_list, "list"
+
+
+async def record_llm_followup_like_previous(
+    session,
+    phone: str,
+    text: str,
+    *,
+    max_items: int = 200
+) -> None:
+    """
+    Anexa a mensagem do LLM no mesmo formato das interações anteriores:
+    {"role": "assistant", "content": "<texto>"}
+
+    - Preserva o container original (lista ou dict com 'messages').
+    - Opcionalmente migra 'history' legado para 'messages'.
+    - Limita o tamanho do histórico.
+    """
+    try:
+        lead = await MemoryService.get_memory_by_phone(session, phone)
+        base_mem = None
+        if lead and getattr(lead, "conversation_mem", None) is not None:
+            base_mem = lead.conversation_mem  # pode ser list ou dict(JSON)
+
+        container, messages_ref, container_type = _coerce_to_messages_container(base_mem)
+
+        # Anexa no formato correto
+        entry = {"role": "assistant", "content": (text or "").strip()}
+        messages_ref.append(entry)
+
+        # Enxuga histórico, se necessário
+        if len(messages_ref) > max_items:
+            del messages_ref[: len(messages_ref) - max_items]
+
+        # Persiste sem alterar outros campos
+        await MemoryService.upsert_memory(
+            session=session,
+            phone=phone,
+            memory=container
+        )
+    except Exception as e:
+        print(f"[followup] erro ao registrar memória (formato anterior) para {phone}: {e}")

@@ -17,6 +17,7 @@ class LeadMemory(Base):
     videos_enviados = Column(String(500), nullable=True)
     desafios = Column(String(500), nullable=True)
     sistema_atual  = Column(String(255), nullable=True)
+    segment  = Column(String(255), nullable=True)
     metadata_json = Column(JSON, nullable=True)
     conversation_mem = Column(JSON, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

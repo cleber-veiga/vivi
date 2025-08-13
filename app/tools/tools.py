@@ -29,10 +29,10 @@ async def semantic_documentary_search(queries: Dict[str, str]) -> str:
         - "info_etica" -> Use quando precisar de conteúdo sobre o de Código de Ética da Viasoft.
         - "info_implantacao" ->  Use quando precisar Informações do funcionamento da Implantação de software da Viasoft.
         - "info_produto_funcion" -> User quando precisar de conteúdo sobre as principais funcionalidades do sistema Construshow
-        - "info_swot" -> Use quando precisar ver análises de fraquezas dos concorrentes e como o construshow se sai melhor do que eles
+        - "info_swot" -> Use quando precisar ver análises de fraquezas dos concorrentes e como o construshow se sai melhor do que eles. Use somente quando o lead mencionar um nome específico de concorrente
         - "info_ciclo_mel" -> Use quando precisar saber como funciona o fluxo de melhoria e desenvolvimento do produto construshow
         - "info_politicas" -> Use quando precisar de conteúdo das Políticas e Procedimentos Internos da Viasoft com base em perguntas específicas.
-        - "info_historia" -> Use quando precisar de informações institucionais da Viasoft, como história, missão e valores.
+        - "info_historia" -> Use quando precisar de informações institucionais da Viasoft, como história, missão e valores. Quem é o fundador ou quem é o CEO da empresa
         - "info_escopo_esperado" -> Use quando precisar de informações sobre quais clientes atendementos
         - "info_suporte_viasoft" -> Use quando precisar de informações de como funciona o suporte da Viasoft
         - "info_outros_produtos" -> Use quando precisar de detalhamentos sobre outros produtos da Viasoft, excluindo o Construshow, focando em suas funcionalidades e benefícios para diversos setores.
@@ -111,6 +111,7 @@ async def capture_lead_data(phone: str, data: Dict[str, Any]) -> Dict[str, str]:
             - quantidade_usuarios (int) -> Quantidade de usuários da empresa (SOMENTE O NUMERO!)
             - sistema_atual (str) -> Nome do sistema que o cliente usa atualmente
             - desafios (str) -> Desafios, dores, reclamações que o cliente apontar na sua pergunta, se houver mais de um separar por vírgula
+            - segment (str) -> Segmento da empresa, Materiais de Construção, Materiais Elétricos, Marcenaria, Loja de Ferragens...
 
     Returns:
         Dict[str, str]: dados atualizados com sucesso.

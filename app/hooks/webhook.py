@@ -4,6 +4,7 @@ from fastapi.responses import Response
 from app.core.files import StorageManager
 from app.services.audio import download_audio
 from app.services.eleven import ElevenLabsClient
+from app.services.followup import FollowUpService
 from app.services.memory import MemoryService
 from app.utils.url_videos import get_url_video_by_id
 from app.utils.utils import split_text_by_video
@@ -51,6 +52,16 @@ async def receive_message(
         if media_type.startswith("audio"):
             audio_url = form_vars.get(f"MediaUrl{i}")
             break
+
+    try:
+        phone_raw = From
+        phone_clean = (phone_raw or "").replace('whatsapp:+','')
+        if phone_clean:
+            async with async_session() as session:
+                await FollowUpService.mark_user_msg(session, phone_clean)
+    except Exception as e:
+        # não bloqueia o fluxo do webhook
+        print(f"[followup] falha ao marcar user msg: {e}")
     
     background_tasks.add_task(processo_lento_e_resposta, From, To, audio_url, Body)
     return Response(status_code=200, content="")
@@ -78,7 +89,8 @@ async def processo_lento_e_resposta(phone: str, to_phone: str, audio_url: str | 
     if body.lower() in ['reset','reiniciar','remover']:
         async with async_session() as session:
             delete_message = await MemoryService.delete_memory_by_phone(session=session,phone=payload.phone)
-        if delete_message == True:
+            delete_fallowup = await FollowUpService.delete_fllow_up_by_phone(session=session,phone=payload.phone)
+        if delete_message and delete_fallowup:
             client.messages.create(
                 from_=to_phone,
                 to=f'whatsapp:+{payload.phone}',
@@ -122,6 +134,12 @@ async def processo_lento_e_resposta(phone: str, to_phone: str, audio_url: str | 
                 body=reply_text,
                 media_url=[storage_response["url"]] if storage_response["success"] else None
             )
+
+            try:
+                async with async_session() as session:
+                    await FollowUpService.mark_ai_reply(session, payload.phone, schedule_done=False)
+            except Exception as e:
+                print(f"[followup] falha ao marcar ai (audio): {e}")
         else:
 
             result = split_text_by_video(reply_text)  # -> (before, token_dict, after) ou (before, key, after)
@@ -131,6 +149,13 @@ async def processo_lento_e_resposta(phone: str, to_phone: str, audio_url: str | 
                     to=f'whatsapp:+{payload.phone}',
                     body=reply_text
                 )
+                
+                # --- IA FOI A ÚLTIMA A ENVIAR (texto simples) ---
+                try:
+                    async with async_session() as session:
+                        await FollowUpService.mark_ai_reply(session, payload.phone, schedule_done=False)
+                except Exception as e:
+                    print(f"[followup] falha ao marcar ai (texto simples): {e}")
                 return
 
             before, video_token, after = result
@@ -179,6 +204,12 @@ async def processo_lento_e_resposta(phone: str, to_phone: str, audio_url: str | 
                     to=f'whatsapp:+{payload.phone}',
                     body=after
                 )
+                # --- IA FOI A ÚLTIMA A ENVIAR (ramo com vídeo/partes) ---
+                try:
+                    async with async_session() as session:
+                        await FollowUpService.mark_ai_reply(session, payload.phone, schedule_done=False)
+                except Exception as e:
+                 print(f"[followup] falha ao marcar ai (video/partes): {e}")
 
     except Exception as e:
         print(f"❌ Erro ao processar e enviar resposta: {e}")
